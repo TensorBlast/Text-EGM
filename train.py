@@ -68,8 +68,8 @@ def main():
     print('Loading Data...')
     print(f'CE being used: {args.use_ce}')
     
-    train = np.load('./data/train_intra.npy', allow_pickle = True).item()
-    val = np.load('./data/val_intra.npy', allow_pickle = True).item()
+    train = np.load('../data/train_intra.npy', allow_pickle = True).item()
+    val = np.load('../data/val_intra.npy', allow_pickle = True).item()
     
     if args.toy:
         train = create_toy(train, [0, 1])
