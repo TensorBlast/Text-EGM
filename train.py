@@ -57,7 +57,7 @@ def ensure_directory_exists(directory_path):
 
 def main():
     args = get_args()
-    directory_path = f'./runs/checkpoint/saved_best_{args.lr}_{args.batch}_{args.patience}_{args.weight_decay}_{args.model}_{args.use_ce}_{args.mask}_{args.mlm_weight}_{args.ce_weight}_{args.toy}_{args.norm_loss}_{args.TS}_{args.TA}_{args.LF}'
+    directory_path = f'./runs/checkpoint/saved_best_{args.lr}_{args.batch}_{args.patience}_{args.weight_decay}_{args.model}_{args.use_ce}_{args.mask}_{args.mlm_weight}_{args.ce_weight}_{args.toy}_{args.TS}_{args.TA}_{args.LF}'
     ensure_directory_exists(directory_path)
 
     gc.collect()
