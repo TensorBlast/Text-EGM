@@ -17,7 +17,7 @@ def get_args():
     parser.add_argument('--lr', type = float, default = 1e-4, help='Please choose the learning rate')
     parser.add_argument('--patience', type = int, default = 5, help = 'Please choose the patience of the early stopper')
     parser.add_argument('--signal_size', type = int, default = 250, help = 'Please choose the signal size')
-    parser.add_argument('--device', type = str, default = 'cuda:1', help = 'Please choose the type of device' )
+    parser.add_argument('--device', type = str, default = 'cuda:0', help = 'Please choose the type of device' )
     parser.add_argument('--warmup', type = int, default = 2000, help = 'Please choose the number of warmup steps for the optimizer' )
     parser.add_argument('--epochs', type = int, default = 50, help = 'Please choose the number of epochs' )
     parser.add_argument('--batch', type = int, default = 2, help = 'Please choose the batch size')
@@ -53,8 +53,31 @@ if __name__ == '__main__':
     torch.cuda.empty_cache()
     args = get_args()
     torch.manual_seed(2)
-    device = torch.device(args.device)
-    print(device)
+    
+    # Add device fallback logic
+    device = None
+    try:
+        if args.device == 'cuda' or args.device.startswith('cuda:'):
+            # Check if CUDA is available
+            if torch.cuda.is_available():
+                device = torch.device(args.device)
+            else:
+                print(f"Warning: {args.device} requested but CUDA is not available")
+                device = torch.device('cpu')
+        else:
+            # For 'cpu' or other devices
+            device = torch.device(args.device)
+    except:
+        # If any error occurs (like invalid device string), try CUDA then fall back to CPU
+        print(f"Warning: Invalid device '{args.device}'. Trying CUDA...")
+        if torch.cuda.is_available():
+            device = torch.device('cuda')
+            print("Using CUDA as fallback")
+        else:
+            device = torch.device('cpu')
+            print("Using CPU as fallback")
+    
+    print(f"Using device: {device}")
     print('Loading Data...')
 
     test = np.load('./data/test_intra.npy', allow_pickle = True).item()

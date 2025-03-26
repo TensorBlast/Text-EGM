@@ -28,15 +28,15 @@ def get_args():
     parser.add_argument('--batch', type = int, default = 2, help = 'Please choose the batch size')
     parser.add_argument('--weight_decay', type = float, default = 1e-2, help = 'Please choose the weight decay')
     parser.add_argument('--model', type = str, default = 'big', help = 'Please choose which model to use')
-    parser.add_argument('--use_ce', action='store_true', help = 'Please choose whether to use CE loss or not')  
-    parser.add_argument('--mask', type=float, default=0.15, help = 'Pleasee choose percentage to mask for signal')
+    parser.add_argument('--use_ce', default=True, action=argparse.BooleanOptionalAction, help = 'Please choose whether to use CE loss or not')  
+    parser.add_argument('--mask', type=float, default=0.75, help = 'Pleasee choose percentage to mask for signal')
     parser.add_argument('--mlm_weight', type = float, default = 1.0, help = 'Please choose the weight for the mlm loss')
     parser.add_argument('--ce_weight', type = float, default = 1.0, help = 'Please choose the weight for the ce loss')
-    parser.add_argument('--TS', action='store_true', help = 'Please choose whether to do Token Substitution')
-    parser.add_argument('--TA', action='store_true', help = 'Please choose whether to do Token Addition')
-    parser.add_argument('--LF', action='store_true', help = 'Please choose whether to do label flipping')
-    parser.add_argument('--toy', action = 'store_true', help = 'Please choose whether to use a toy dataset or not')
-    parser.add_argument('--inference', action='store_true', help = 'Please choose whether it is inference or not')
+    parser.add_argument('--TS', default=False, action=argparse.BooleanOptionalAction, help = 'Please choose whether to do Token Substitution')
+    parser.add_argument('--TA', default=False, action=argparse.BooleanOptionalAction, help = 'Please choose whether to do Token Addition')
+    parser.add_argument('--LF', default=False, action=argparse.BooleanOptionalAction, help = 'Please choose whether to do label flipping')
+    parser.add_argument('--toy', default=False, action=argparse.BooleanOptionalAction, help = 'Please choose whether to use a toy dataset or not')
+    parser.add_argument('--inference', default=False, action=argparse.BooleanOptionalAction, help = 'Please choose whether it is inference or not')
     return parser.parse_args()
     
     
@@ -63,8 +63,31 @@ def main():
     gc.collect()
     torch.cuda.empty_cache()
     torch.manual_seed(2)
-    device = torch.device(args.device)
-    print(device)
+    
+    # Add device fallback logic
+    device = None
+    try:
+        if args.device == 'cuda' or args.device.startswith('cuda:'):
+            # Check if CUDA is available
+            if torch.cuda.is_available():
+                device = torch.device(args.device)
+            else:
+                print(f"Warning: {args.device} requested but CUDA is not available")
+                device = torch.device('cpu')
+        else:
+            # For 'cpu' or other devices
+            device = torch.device(args.device)
+    except:
+        # If any error occurs (like invalid device string), try CUDA then fall back to CPU
+        print(f"Warning: Invalid device '{args.device}'. Trying CUDA...")
+        if torch.cuda.is_available():
+            device = torch.device('cuda')
+            print("Using CUDA as fallback")
+        else:
+            device = torch.device('cpu')
+            print("Using CPU as fallback")
+    
+    print(f"Using device: {device}")
     print('Loading Data...')
     print(f'CE being used: {args.use_ce}')
     

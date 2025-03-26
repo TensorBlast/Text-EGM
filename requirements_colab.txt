@@ -19,3 +19,5 @@ wandb
 seaborn
 captum
 pyts
+wfdb
+tqdm

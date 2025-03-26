@@ -92,7 +92,44 @@ if __name__ == '__main__':
     keys_list = norm_keys_list + afib_keys_list
 
     device_name = args.device
-    device = torch.device(device_name)
+    
+    # Add device fallback logic
+    device = None
+    try:
+        if device_name == 'cuda' or (device_name is not None and device_name.startswith('cuda:')):
+            # Check if CUDA is available
+            if torch.cuda.is_available():
+                device = torch.device(device_name)
+            else:
+                print(f"Warning: {device_name} requested but CUDA is not available")
+                device = torch.device('cpu')
+                device_name = 'cpu'  # Update device_name for map_location
+        else:
+            # For 'cpu', None, or other devices
+            if device_name is None:
+                if torch.cuda.is_available():
+                    device = torch.device('cuda')
+                    device_name = 'cuda'  # Update device_name for map_location
+                    print("Using CUDA as default device")
+                else:
+                    device = torch.device('cpu')
+                    device_name = 'cpu'  # Update device_name for map_location
+                    print("Using CPU as default device")
+            else:
+                device = torch.device(device_name)
+    except:
+        # If any error occurs (like invalid device string), try CUDA then fall back to CPU
+        print(f"Warning: Invalid device '{device_name}'. Trying CUDA...")
+        if torch.cuda.is_available():
+            device = torch.device('cuda')
+            device_name = 'cuda'  # Update device_name for map_location
+            print("Using CUDA as fallback")
+        else:
+            device = torch.device('cpu')
+            device_name = 'cpu'  # Update device_name for map_location
+            print("Using CPU as fallback")
+    
+    print(f"Using device: {device}")
     
     custom_tokens = [
         f"signal_{i}" for i in range(250+1)

@@ -2,11 +2,99 @@ import os
 import wfdb
 import numpy as np
 import argparse
+import requests
+import zipfile
+import shutil
+import subprocess
+from pathlib import Path
+from tqdm import tqdm
 
 def get_args():
     parser = argparse.ArgumentParser(description=None)
-    parser.add_argument('--path', type = str, default = None, help='Please specify the path to the folder containing the data.')
+    parser.add_argument('--path', type=str, default=None, 
+                       help='Path to the folder containing the data. If not provided, data will be downloaded automatically.')
     return parser.parse_args()
+
+def download_and_extract_data(data_dir):
+    """
+    Downloads and extracts the intracardiac AF database if not already present.
+    
+    Args:
+        data_dir: Directory where the data should be downloaded and extracted to
+    
+    Returns:
+        Path to the extracted data directory
+    """
+    zip_path = os.path.join(data_dir, "intracardiac-atrial-fibrillation-database-1.0.0.zip")
+    extract_dir = os.path.join(data_dir, "intracardiac-atrial-fibrillation-database-1.0.0")
+    
+    # Check if data is already extracted
+    if os.path.exists(extract_dir):
+        print(f"Data already exists at {extract_dir}")
+        return extract_dir
+        
+    # Create data directory if it doesn't exist
+    ensure_directory_exists(data_dir)
+    
+    # Download if zip file doesn't exist
+    if not os.path.exists(zip_path):
+        url = "https://physionet.org/static/published-projects/iafdb/intracardiac-atrial-fibrillation-database-1.0.0.zip"
+        
+        # Try using wget first (usually faster)
+        try:
+            print(f"Downloading data using wget to {zip_path}...")
+            result = subprocess.run(
+                ["wget", "-O", zip_path, url, "--progress=bar:force:noscroll"], 
+                check=True
+            )
+            if result.returncode == 0:
+                print("Download completed successfully!")
+            else:
+                raise Exception("wget command failed")
+        except Exception as e:
+            print(f"wget download failed: {e}")
+            print("Falling back to Python requests for download...")
+            
+            # If wget fails, fall back to requests with a progress bar
+            try:
+                print(f"Downloading data to {zip_path}...")
+                response = requests.get(url, stream=True)
+                response.raise_for_status()
+                
+                # Get the file size from headers
+                total_size_in_bytes = int(response.headers.get('content-length', 0))
+                block_size = 1024  # 1 Kibibyte
+                
+                # Show download progress bar
+                progress_bar = tqdm(total=total_size_in_bytes, unit='iB', unit_scale=True)
+                
+                with open(zip_path, 'wb') as f:
+                    for data in response.iter_content(block_size):
+                        progress_bar.update(len(data))
+                        f.write(data)
+                progress_bar.close()
+                
+                if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
+                    print("ERROR, something went wrong with the download")
+                    return None
+                
+                print("Download completed successfully!")
+            except Exception as e:
+                print(f"Error downloading data: {e}")
+                return None
+    else:
+        print(f"Zip file already exists at {zip_path}")
+    
+    # Extract the zip file
+    print(f"Extracting data to {extract_dir}...")
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(data_dir)
+        print("Extraction completed successfully!")
+        return extract_dir
+    except Exception as e:
+        print(f"Error extracting data: {e}")
+        return None
 
 def z_score_normalization(data):
     mean_val = np.mean(data, axis=(0, 1), keepdims=True)
@@ -65,7 +153,6 @@ def read_all(path):
     
     return stacked_array
 
-
 def split_dict_by_catheter_afib(input_dict):
 
     train_dict, test_dict, val_dict = {}, {}, {}
@@ -87,6 +174,23 @@ def ensure_directory_exists(directory_path):
         print(f"Directory already exists: {directory_path}")
 
 def main(args):
+    # Handle path argument
+    if args.path is None:
+        # Use default path and download if necessary
+        data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
+        print(f"No path provided. Will use default data directory: {data_dir}")
+        data_path = download_and_extract_data(data_dir)
+        if data_path is None:
+            print("Failed to download or extract data. Exiting.")
+            return
+        args.path = data_path
+    else:
+        # Verify the provided path exists
+        if not os.path.exists(args.path):
+            print(f"Error: The provided path '{args.path}' does not exist. Exiting.")
+            return
+        print(f"Using provided path: {args.path}")
+    
     print("Starting data processing...")
     egm_signals = read_all(args.path)
     if egm_signals is None:
