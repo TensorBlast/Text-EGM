@@ -14,7 +14,8 @@ def trainer(model, train_dataloader, optimizer, device, args, ce = None):
         
         if args.model == 'ablation':
             batch_data, tokenized_sample, afib_label, mask, batch_attention_mask = batch
-            batch_data, afib_label = batch_data.to(device), afib_label.to(device)
+            
+            batch_data, afib_label = tokenized_sample.to(device), afib_label.to(device)
             
             logits, loss = model(batch_data, afib_label)
             loss = torch.mean(loss)
@@ -227,6 +228,12 @@ def inference(model, tokenizer, test_dataloader, device, args):
             
             if args.model == 'ablation':
                 batch_data, tokenized_sample, afib_label, mask, batch_attention_mask = batch
+                # print(f"Batch_data: {batch_data}")
+                # print(f"Tokenized_sample: {tokenized_sample}")
+                # print(f"Afib_label: {afib_label}")
+                # print(f"Mask: {mask}")
+                # print(f"Batch_attention_mask: {batch_attention_mask}")
+                # exit()
                 batch_data, afib_label = batch_data.to(device), afib_label.to(device)
                 
                 logits, _ = model(batch_data)
@@ -354,13 +361,14 @@ def inference(model, tokenizer, test_dataloader, device, args):
 
             count_index +=1
             
-    if args.model == 'vit' or args.model == 'big_ts' or args.model == 'long_ts':
+    if args.model == 'vit' or args.model == 'big_ts' or args.model == 'long_ts' or args.model == 'ablation':
         print("Average Accuracy for Afib:", np.mean(mean_accuracies_afib))
     else:
         print('MSE for Signal Interpolation', np.mean(MSEs_signals))
         print('MAE for Signal Interpolation', np.mean(MAEs_signals))
         print("Average Accuracy for AFib:", np.mean(mean_accuracies_afib))
-    
+    print(f'Ground Truth Afib: {ground_truth_afib}')
+    print(f'Pred Afib: {pred_afib}')
     cm = confusion_matrix(ground_truth_afib, pred_afib)
     print(f'Confusion Matrix: {cm}')
 

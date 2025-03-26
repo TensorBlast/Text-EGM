@@ -80,7 +80,7 @@ if __name__ == '__main__':
     print(f"Using device: {device}")
     print('Loading Data...')
 
-    test = np.load('./data/test_intra.npy', allow_pickle = True).item()
+    test = np.load('../data/test_intra.npy', allow_pickle = True).item()
     
     if args.toy:
         test = create_toy(test, [18])
@@ -188,7 +188,7 @@ if __name__ == '__main__':
         
     test_loader = DataLoader(test_dataset, batch_size=args.batch, shuffle=False)   
     
-    checkpoint = torch.load(f'./runs/checkpoint/{args.checkpoint}/best_checkpoint.chkpt', map_location = args.device)
+    checkpoint = torch.load(f'./runs/checkpoint/{args.checkpoint}/best_checkpoint.chkpt', map_location = device)
     model.load_state_dict(checkpoint['model'])
     print(f'Inferencing checkpoint {args.checkpoint}... ')
     inference(model, tokenizer, test_loader, device, args)
