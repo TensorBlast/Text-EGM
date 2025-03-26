@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import os
 
 from optim import ScheduledOptim, early_stopping
-from models import VITModel, TimeSeriesModel
+from models import VITModel, TimeSeriesModel, TorchECGWrapper
 from runners import trainer, validate
 
 def get_args():
@@ -175,6 +175,15 @@ def main():
         model.resize_token_embeddings(len(tokenizer))
         model_hidden_size = model.config.hidden_size
     
+    if args.model == 'ablation':
+        model = TorchECGWrapper(in_channels=1, num_classes=2, dropout=0.2).to(device)
+        model_hidden_size = 512  # Match the hidden size of ECG_CRNN
+        tokenizer = None  # No tokenizer needed for this model
+        
+        # Use the EGMTSDataset which already handles raw signals correctly
+        
+        
+    
     print('Creating Dataset and DataLoader...')
     if args.model == 'vit':
         train_dataset = EGMIMGDataset(train, tokenizer, args = args)        
@@ -182,6 +191,9 @@ def main():
     elif args.model == 'big_ts' or args.model == 'long_ts':
         train_dataset = EGMTSDataset(train, args = args)        
         val_dataset = EGMTSDataset(val, args = args)
+    elif args.model == 'ablation':
+        train_dataset = EGMTSDataset(train, args=args)
+        val_dataset = EGMTSDataset(val, args=args)
     else:
         train_dataset = EGMDataset(train, tokenizer, args = args)        
         val_dataset = EGMDataset(val, tokenizer, args = args)

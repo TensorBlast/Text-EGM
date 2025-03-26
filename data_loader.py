@@ -292,18 +292,22 @@ class EGMTSDataset(Dataset):
             else:
                 signal = np.concatenate([signal, pad_id])
 
-        min_val, max_val = np.min(signal), np.max(signal)
-        normalized_signal = (signal - min_val) / (max_val - min_val)
+        # REMOVE DOUBLE NORMALIZATION
+        # The data is already z-score normalized in preprocessing
+        # Instead of min-max normalization, just use the signal directly
+        # normalized_signal = (signal - min_val) / (max_val - min_val)
+        
+        # Just ensure signal is within reasonable bounds to prevent extreme values
+        signal = np.clip(signal, -10, 10)
 
-        mask = np.ones_like(normalized_signal)
-        mask_indices_signal_curr = np.random.choice(1000, int(self.args.mask * (1000)), replace=False)
+        mask = np.ones_like(signal)
+        mask_indices_signal_curr = np.random.choice(len(signal), int(self.args.mask * len(signal)), replace=False)
         mask[mask_indices_signal_curr] = 0
-        masked_signal = np.copy(normalized_signal)
+        masked_signal = np.copy(signal)
         masked_signal[mask_indices_signal_curr] = 0
-        attention_mask = np.ones_like(normalized_signal)
+        attention_mask = np.ones_like(signal)
 
-
-        return torch.tensor(masked_signal, dtype= torch.float32), torch.LongTensor(normalized_signal), afib_label, torch.LongTensor(mask), \
+        return torch.tensor(masked_signal, dtype=torch.float32), torch.tensor(signal, dtype=torch.float32), afib_label, torch.LongTensor(mask), \
                 torch.tensor(attention_mask, dtype=torch.int)
 
     def label_flip(self, afib_label):

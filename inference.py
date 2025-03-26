@@ -6,7 +6,7 @@ from transformers import BigBirdForMaskedLM, LongformerForMaskedLM, BigBirdToken
                             ViTForMaskedImageModeling, LongformerConfig
 import argparse
 from data_loader import EGMDataset, EGMIMGDataset, EGMTSDataset
-from models import VITModel, TimeSeriesModel
+from models import VITModel, TimeSeriesModel, TorchECGWrapper
 from torch.utils.data import DataLoader
 import gc
 from runners import inference
@@ -170,12 +170,19 @@ if __name__ == '__main__':
         model.resize_token_embeddings(len(tokenizer))
         model_hidden_size = model.config.hidden_size
         
+    if args.model == 'ablation':
+        model = TorchECGWrapper(in_channels=1, num_classes=2, dropout=0.2).to(device)
+        tokenizer = None  # No tokenizer needed
+        
+        
     print('Creating Dataset and DataLoader...')
     
     if args.model == 'vit':
         test_dataset = EGMIMGDataset(test, tokenizer, args= args)
     elif args.model == 'big_ts' or args.model == 'long_ts':
-        test_dataset = EGMTSDataset(test, args = args)        
+        test_dataset = EGMTSDataset(test, args = args)    
+    elif args.model == 'ablation':
+        test_dataset = EGMTSDataset(test, args = args)
     else:
         test_dataset = EGMDataset(test, tokenizer, args = args)
         

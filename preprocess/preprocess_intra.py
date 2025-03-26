@@ -96,10 +96,20 @@ def download_and_extract_data(data_dir):
         print(f"Error extracting data: {e}")
         return None
 
+# def z_score_normalization(data):
+#     mean_val = np.mean(data, axis=(0, 1), keepdims=True)
+#     std_val = np.std(data, axis=(0, 1), keepdims=True)
+#     normalized_data = (data - mean_val) / std_val
+#     return normalized_data
+
 def z_score_normalization(data):
     mean_val = np.mean(data, axis=(0, 1), keepdims=True)
     std_val = np.std(data, axis=(0, 1), keepdims=True)
+    # Avoid division by zero
+    std_val = np.maximum(std_val, 1e-10)
     normalized_data = (data - mean_val) / std_val
+    # Ensure no NaNs in the output
+    normalized_data = np.nan_to_num(normalized_data, nan=0.0)
     return normalized_data
 
 def segment_signal(data, segment_length, step_size = None):
@@ -156,6 +166,7 @@ def read_all(path):
 def split_dict_by_catheter_afib(input_dict):
 
     train_dict, test_dict, val_dict = {}, {}, {}
+    num_catheters = len(set([key[1] for key in input_dict.keys()]))
     for key, value in input_dict.items():
         _, catheter_num, _, _ = key
         if catheter_num < 21:
@@ -164,6 +175,7 @@ def split_dict_by_catheter_afib(input_dict):
             test_dict[key] = value
         elif 26 <= catheter_num:
             val_dict[key] = value
+    print(f"Number of catheters: {num_catheters}")
     return train_dict, test_dict, val_dict
 
 def ensure_directory_exists(directory_path):
