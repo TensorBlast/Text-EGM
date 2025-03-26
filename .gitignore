@@ -175,3 +175,4 @@ files/
 flash-attention/
 wandb/
 data/
+.DS_Store/
