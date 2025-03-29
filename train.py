@@ -37,6 +37,7 @@ def get_args():
     parser.add_argument('--LF', default=False, action=argparse.BooleanOptionalAction, help = 'Please choose whether to do label flipping')
     parser.add_argument('--toy', default=False, action=argparse.BooleanOptionalAction, help = 'Please choose whether to use a toy dataset or not')
     parser.add_argument('--inference', default=False, action=argparse.BooleanOptionalAction, help = 'Please choose whether it is inference or not')
+    parser.add_argument('--dry-run', default=False, action=argparse.BooleanOptionalAction, help = 'Use only 10% of data for quick testing')
     return parser.parse_args()
     
     
@@ -48,6 +49,19 @@ def create_toy(dataset, spec_ind):
             toy_dataset[i] = dataset[i]    
     return toy_dataset
 
+def create_subset(dataset, percentage=0.1):
+    """Creates a subset of the dataset with a given percentage of samples"""
+    subset = {}
+    keys = list(dataset.keys())
+    # Calculate how many samples to keep
+    n_samples = max(1, int(len(keys) * percentage))
+    # Randomly select keys
+    selected_keys = np.random.choice(keys, size=n_samples, replace=False)
+    # Create subset with selected keys
+    for key in selected_keys:
+        subset[key] = dataset[key]
+    return subset
+
 def ensure_directory_exists(directory_path):
     if not os.path.exists(directory_path):
         os.makedirs(directory_path)
@@ -57,7 +71,7 @@ def ensure_directory_exists(directory_path):
 
 def main():
     args = get_args()
-    directory_path = f'./runs/checkpoint/saved_best_{args.lr}_{args.batch}_{args.patience}_{args.weight_decay}_{args.model}_{args.use_ce}_{args.mask}_{args.mlm_weight}_{args.ce_weight}_{args.toy}_{args.TS}_{args.TA}_{args.LF}'
+    directory_path = f'./runs/checkpoint/saved_best_{args.lr}_{args.batch}_{args.patience}_{args.weight_decay}_{args.model}_{args.use_ce}_{args.mask}_{args.mlm_weight}_{args.ce_weight}_{args.toy}_{args.TS}_{args.TA}_{args.LF}{"_dry-run" if args.dry_run else ""}'
     ensure_directory_exists(directory_path)
 
     gc.collect()
@@ -97,7 +111,12 @@ def main():
     if args.toy:
         train = create_toy(train, [0, 1])
         val = create_toy(val, [14])
-
+    
+    if args.dry_run:
+        print('Dry run mode: using only 10% of the data')
+        train = create_subset(train, 0.1)
+        val = create_subset(val, 0.1)
+    
     print('Creating Custom Tokens...')
     
     custom_tokens = [
