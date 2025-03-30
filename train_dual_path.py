@@ -12,7 +12,7 @@ import os
 import time
 from tqdm import tqdm
 
-from optim import ScheduledOptim, early_stopping
+from optim import ScheduledOptim, EarlyStopping
 from dual_path_model import DualPathECGModel
 
 
@@ -55,8 +55,9 @@ def create_subset(dataset, percentage=0.1):
     keys = list(dataset.keys())
     # Calculate how many samples to keep
     n_samples = max(1, int(len(keys) * percentage))
+    subset_keys = np.random.choice(len(keys), size=n_samples, replace=False)
     # Randomly select keys
-    selected_keys = np.random.choice(keys, size=n_samples, replace=False)
+    selected_keys = [keys[i] for i in subset_keys]
     # Create subset with selected keys
     for key in selected_keys:
         subset[key] = dataset[key]
@@ -72,7 +73,7 @@ def ensure_directory_exists(directory_path):
         print(f"Directory already exists: {directory_path}")
 
 
-def train_epoch(model, train_loader, optimizer, device, args):
+def train_epoch(model, train_loader, optimizer, device, args, tokenizer):
     """Train for one epoch"""
     model.train()
     total_loss = 0
@@ -99,7 +100,7 @@ def train_epoch(model, train_loader, optimizer, device, args):
         
         # Prepare MLM labels: -100 for non-masked tokens
         mlm_labels = torch.full_like(time_labels, -100)
-        mask_indices = (time_input_ids == model.time_model.config.mask_token_id)
+        mask_indices = (time_input_ids == tokenizer.mask_token_id)
         mlm_labels[mask_indices] = time_labels[mask_indices]
         
         # Forward pass
@@ -120,7 +121,7 @@ def train_epoch(model, train_loader, optimizer, device, args):
         # Backward pass
         optimizer.zero_grad()
         loss.backward()
-        optimizer.step()
+        optimizer.step_and_update_lr()
         
         # Track losses
         total_loss += loss.item()
@@ -143,7 +144,7 @@ def train_epoch(model, train_loader, optimizer, device, args):
     return avg_loss, avg_mlm_loss, avg_classification_loss
 
 
-def validate(model, val_loader, device, args):
+def validate(model, val_loader, device, args, tokenizer):
     """Validate the model"""
     model.eval()
     total_loss = 0
@@ -173,7 +174,7 @@ def validate(model, val_loader, device, args):
             
             # Prepare MLM labels: -100 for non-masked tokens
             mlm_labels = torch.full_like(time_labels, -100)
-            mask_indices = (time_input_ids == model.time_model.config.mask_token_id)
+            mask_indices = (time_input_ids == tokenizer.mask_token_id)
             mlm_labels[mask_indices] = time_labels[mask_indices]
             
             # Forward pass
@@ -334,7 +335,7 @@ def main():
     )
     
     # Initialize early stopping
-    early_stopper = early_stopping(patience=args.patience, verbose=True)
+    early_stopper = EarlyStopping(patience=args.patience, delta=0.01)
     
     # Training loop
     print('Starting training...')
@@ -349,11 +350,11 @@ def main():
         epoch_start_time = time.time()
         
         # Train
-        train_loss, train_mlm_loss, train_cls_loss = train_epoch(model, train_loader, optimizer, device, args)
+        train_loss, train_mlm_loss, train_cls_loss = train_epoch(model, train_loader, optimizer, device, args, tokenizer)
         train_losses.append(train_loss)
         
         # Validate
-        val_loss, val_mlm_loss, val_cls_loss, val_accuracy = validate(model, val_loader, device, args)
+        val_loss, val_mlm_loss, val_cls_loss, val_accuracy = validate(model, val_loader, device, args, tokenizer)
         val_losses.append(val_loss)
         val_accuracies.append(val_accuracy)
         

@@ -17,19 +17,19 @@ class FrequencyTokenizer:
         self.signal_size = signal_size
         self.sampling_rate = sampling_rate
         
-    def compute_stft(self, signal, window_length=128, hop_length=64):
+    def compute_stft(self, ecg_signal, window_length=128, hop_length=64):
         """
         Compute Short-Time Fourier Transform of the signal
         
         Args:
-            signal: ECG signal array
+            ecg_signal: ECG signal array
             window_length: STFT window length
             hop_length: STFT hop length
             
         Returns:
             Time-frequency representation of the signal
         """
-        f, t, Zxx = signal.stft(signal, fs=self.sampling_rate, 
+        f, t, Zxx = signal.stft(ecg_signal, fs=self.sampling_rate, 
                                 nperseg=window_length, 
                                 noverlap=window_length-hop_length)
         # Take magnitude of complex values
@@ -39,18 +39,18 @@ class FrequencyTokenizer:
         Zxx = Zxx[:max_freq_idx, :]
         return Zxx, f[:max_freq_idx], t
     
-    def tokenize(self, signal):
+    def tokenize(self, ecg_signal):
         """
         Convert signal to frequency tokens
         
         Args:
-            signal: ECG signal array
+            ecg_signal: ECG signal array
             
         Returns:
             Frequency tokens, min value, max value
         """
         # Compute STFT
-        spectrogram, freqs, times = self.compute_stft(signal)
+        spectrogram, freqs, times = self.compute_stft(ecg_signal)
         
         # Normalize spectrogram
         spec_min, spec_max = np.min(spectrogram), np.max(spectrogram)
@@ -70,17 +70,17 @@ class FrequencyTokenizer:
                 
         return freq_tokens, spec_min, spec_max, quantized_spec, freqs, times
     
-    def get_spec_shape(self, signal, window_length=128, hop_length=64):
+    def get_spec_shape(self, ecg_signal, window_length=128, hop_length=64):
         """
         Get the shape of the spectrogram for a given signal
         
         Args:
-            signal: ECG signal array
+            ecg_signal: ECG signal array
             window_length: STFT window length
             hop_length: STFT hop length
             
         Returns:
             Shape of the spectrogram
         """
-        spectrogram, _, _ = self.compute_stft(signal, window_length, hop_length)
+        spectrogram, _, _ = self.compute_stft(ecg_signal, window_length, hop_length)
         return spectrogram.shape 

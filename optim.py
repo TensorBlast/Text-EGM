@@ -32,7 +32,32 @@ class ScheduledOptim():
             param_group['lr'] = lr
             
             
+class EarlyStopping:
+    def __init__(self, patience=5, delta=0):
+        self.patience = patience
+        self.delta = delta
+        self.best_score = None
+        self.counter = 0
+        self.early_stop = False
+        
+    def step(self, val_loss):
+        if self.best_score is None:
+            self.best_score = val_loss
+            return False
+        
+        if val_loss > self.best_score + self.delta:
+            self.counter += 1
+            if self.counter >= self.patience:
+                return True
+        else:
+            self.best_score = val_loss
+            self.counter = 0
+        
+        return False
+
+
 def early_stopping(validation_losses, patience=5, delta=0):
+    """Legacy function, kept for backward compatibility"""
     if len(validation_losses) < patience + 1:
         return False
     

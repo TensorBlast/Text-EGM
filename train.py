@@ -55,8 +55,9 @@ def create_subset(dataset, percentage=0.1):
     keys = list(dataset.keys())
     # Calculate how many samples to keep
     n_samples = max(1, int(len(keys) * percentage))
+    subset_keys = np.random.choice(len(keys), size=n_samples, replace=False)
     # Randomly select keys
-    selected_keys = np.random.choice(keys, size=n_samples, replace=False)
+    selected_keys = [keys[i] for i in subset_keys]
     # Create subset with selected keys
     for key in selected_keys:
         subset[key] = dataset[key]
