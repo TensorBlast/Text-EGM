@@ -313,7 +313,8 @@ def inference(model, tokenizer, test_dataloader, device, args):
                 }
             
             if args.model == 'big' or args.model == 'clin_bird' or args.model == 'clin_long' or args.model == 'long' or args.model == 'raw_big' or args.model == 'raw_long':
-                decoded_signal, decoded_afib = decode_from_tokens(tokenizer, preds, new_args['signal_size'], new_args['min_val'],new_args['max_val'], args)
+                # Convert from [0,1] to [-10,10] range for denormalization
+                decoded_signal, decoded_afib = decode_from_tokens(tokenizer, preds, new_args['signal_size'], -10, 10, args)
                 decoded = torch.cat([decoded_signal, decoded_afib], dim=1)
 
                 for i in range(batch_data.shape[0]):

@@ -63,7 +63,9 @@ class DualPathECGModel(nn.Module):
                 time_labels=None,
                 freq_global_attention_mask=None,
                 time_global_attention_mask=None,
-                class_labels=None):
+                class_labels=None,
+                output_attentions=False,
+                output_hidden_states=False):
         """
         Forward pass through the dual-path model
         
@@ -76,6 +78,8 @@ class DualPathECGModel(nn.Module):
             freq_global_attention_mask: Global attention mask for frequency domain (Longformer only)
             time_global_attention_mask: Global attention mask for time domain (Longformer only)
             class_labels: Classification labels (0 for non-AFib, 1 for AFib)
+            output_attentions: Whether to output attention weights
+            output_hidden_states: Whether to output hidden states
             
         Returns:
             Dictionary containing:
@@ -84,18 +88,24 @@ class DualPathECGModel(nn.Module):
                 - classification_loss: Classification loss
                 - logits: Token prediction logits
                 - classification_logits: Classification logits
+                - attentions: Attention weights if output_attentions is True
+                - hidden_states: Hidden states if output_hidden_states is True
         """
         # Process time domain
         if self.model_type == 'long' and time_global_attention_mask is not None:
             time_outputs = self.time_model(
                 input_ids=time_input_ids,
                 attention_mask=time_attention_mask,
-                global_attention_mask=time_global_attention_mask
+                global_attention_mask=time_global_attention_mask,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states
             )
         else:
             time_outputs = self.time_model(
                 input_ids=time_input_ids,
-                attention_mask=time_attention_mask
+                attention_mask=time_attention_mask,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states
             )
         
         # Process frequency domain
@@ -103,12 +113,16 @@ class DualPathECGModel(nn.Module):
             freq_outputs = self.freq_model(
                 input_ids=freq_input_ids,
                 attention_mask=freq_attention_mask,
-                global_attention_mask=freq_global_attention_mask
+                global_attention_mask=freq_global_attention_mask,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states
             )
         else:
             freq_outputs = self.freq_model(
                 input_ids=freq_input_ids,
-                attention_mask=freq_attention_mask
+                attention_mask=freq_attention_mask,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states
             )
         
         # Get sequence representations
@@ -173,10 +187,23 @@ class DualPathECGModel(nn.Module):
         elif classification_loss is not None:
             loss = classification_loss
         
-        return {
+        # Prepare output dictionary
+        output_dict = {
             'loss': loss,
             'mlm_loss': mlm_loss,
             'classification_loss': classification_loss,
             'logits': logits,
             'classification_logits': classification_logits
-        } 
+        }
+        
+        # Add attention outputs if requested
+        if output_attentions:
+            output_dict['attentions'] = time_outputs.attentions
+            if self.model_type == 'long':
+                output_dict['global_attentions'] = time_outputs.global_attentions
+        
+        # Add hidden states if requested
+        if output_hidden_states:
+            output_dict['hidden_states'] = time_outputs.hidden_states
+        
+        return output_dict 

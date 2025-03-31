@@ -51,6 +51,15 @@ This will:
 2. Visualize both time and frequency domain attributions
 3. If `--CF` is enabled, perform counterfactual analyses with token substitution (`--TS`), token addition (`--TA`), and label flipping (`--LF`)
 
+
+
+
+## Frequency-Domain Representation with Dual-Path Processing
+The dual-path extension that processes both time and frequency domain representations of the ECG signal. This ablation is inspired by the paper - ["AnyECG: Foundational Models for Multitask Cardiac Analysis in Real-World Settings"](https://arxiv.org/abs/2411.17711)
+
+## Concept
+The current approach processes ECG signals primarily in the time domain by tokenizing amplitude values. However, cardiac arrhythmias often manifest distinctive frequency patterns that might not be optimally captured in time-domain representations alone. A dual-path model can process both time and frequency domain information simultaneously, potentially improving interpolation and interpretability.
+
 ## Benefits
 
 The dual-path approach offers several advantages:
@@ -80,6 +89,29 @@ The visualization tools show:
 
 This provides a comprehensive view of what signal components (in both domains) are most important for the model's predictions.
 
+## Commands for Finetuning and Counterfactual Analysis
+
+### Step 1: Finetuning on Masked Signal
+
+As we are working only with Afib patients and this ablation is focused on interpolation, we finetune either BigBird or LongFormer versions of the DualECGModel without any augmentation:
+
+`python train_dual_path.py --mask 0.75 --batch 4 --lr 0.0001 --epochs 2 --dry-run --model long`
+
+### Step 2: Evaluation 
+
+To evaluate and save visualizations of the test data:
+`python inference_dual_path.py --batch 1 --checkpoint <checkpoint_name>  --save_visualizations`
+
+
+### Step 3: Visualization of Integrated Gradients
+This step uses integrated gradients for feature attribution (which provides a more detailed understanding of which parts of the signal contribute most to predictions)
+After finetuning, you'll need to run the visualization scripts with the counterfactual flag (--CF) enabled and different augmentation strategies. Here's how to do it for each counterfactual mode:
+
+TA (for TS and LF use --TS and --LF flags, Note: TA + TS can be combined)
+
+`python visualize/dual_domain_viz.py --model long --checkpoint <checkpoint_name> --TA --CF --output_dir ./cf_analysis/ta_only`
+
+
 ## Further Work
 
 Potential extensions to this approach include:
@@ -97,4 +129,4 @@ This extension requires additional dependencies:
 
 ## References
 
-This approach is inspired by recent work in ECG analysis using multi-domain processing, including the papers "Interpretation of Intracardiac Electrograms Through Textual Representations" and "AnyECG: Foundational Models for Multitask Cardiac Analysis in Real-World Settings". 
+This approach is inspired by recent work in ECG analysis using multi-domain processing, including the papers "Interpretation of Intracardiac Electrograms Through Textual Representations" and "AnyECG: Foundational Models for Multitask Cardiac Analysis in Real-World Settings".

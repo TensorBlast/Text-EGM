@@ -18,6 +18,12 @@ class ScheduledOptim():
         "Zero out the gradients by the inner optimizer"
         self._optimizer.zero_grad()
 
+    def state_dict(self):
+        return self._optimizer.state_dict()
+
+    def load_state_dict(self, state_dict):
+        self._optimizer.load_state_dict(state_dict)
+
     def _get_lr_scale(self):
         return np.min([
             np.power(self.n_current_steps, -0.5),

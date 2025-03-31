@@ -42,10 +42,14 @@ class EGMDataset(Dataset):
 
         afib_token = f"afib_{int(afib_label)}"
 
-        min_val, max_val = np.min(signal), np.max(signal)
-        normalized_signal = (signal - min_val) / (max_val - min_val)
+        # Data is already z-score normalized, so we'll clip to reasonable bounds and quantize
+        signal_clipped = np.clip(signal, -10, 10)  # Clip to reasonable bounds
+        normalized_signal = (signal_clipped + 10) / 20  # Scale to [0,1] for quantization
         quantized_signal = np.floor(normalized_signal * self.signal_size).astype(int)
         quantized_signal_tokens = [f"signal_{i}" for i in quantized_signal]
+
+        # Calculate min/max values from clipped signal
+        min_val, max_val = np.min(signal_clipped), np.max(signal_clipped)
 
         quantized_signal_ids = self.tokenizer.convert_tokens_to_ids(quantized_signal_tokens)
 

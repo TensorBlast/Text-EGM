@@ -445,13 +445,10 @@ def main():
     
     # Load test data
     print("Loading test data...")
-    norm_test = np.load('../data/test_data_by_placement_na_True_True_True_False_False.npy', allow_pickle=True).item()
-    afib_test = np.load('../data/test_data_by_placement_na_True_True_True_False_True.npy', allow_pickle=True).item()
-    
-    # Combine datasets
-    test = {}
-    test.update(norm_test)
-    test.update(afib_test)
+    # Only load AFib data since that's all we have
+    # test = np.load('../data/test_data_by_placement_na_True_True_True_False_True.npy', allow_pickle=True).item()
+    test = np.load('../data/test_intra.npy', allow_pickle=True).item()
+
     
     # Get keys to process
     if args.key is not None:

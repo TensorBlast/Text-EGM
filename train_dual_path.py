@@ -91,12 +91,29 @@ def train_epoch(model, train_loader, optimizer, device, args, tokenizer):
         time_labels = batch['time_labels'].to(device)
         afib_label = batch['afib_label'].to(device)
         
+        # Truncate sequences if they exceed model's max length (for Longformer)
+        if args.model == 'long':
+            max_len = model.time_model.config.max_position_embeddings - 2  # Leave room for special tokens
+            if time_input_ids.size(1) > max_len:
+                time_input_ids = time_input_ids[:, :max_len]
+                time_attention_mask = time_attention_mask[:, :max_len]
+                time_labels = time_labels[:, :max_len]
+            
+            if freq_input_ids.size(1) > max_len:
+                freq_input_ids = freq_input_ids[:, :max_len]
+                freq_attention_mask = freq_attention_mask[:, :max_len]
+        
         # Handle global attention for Longformer
         time_global_attention_mask = batch.get('time_global_attention_mask')
         freq_global_attention_mask = batch.get('freq_global_attention_mask')
         if time_global_attention_mask is not None:
             time_global_attention_mask = time_global_attention_mask.to(device)
+            if args.model == 'long' and time_global_attention_mask.size(1) > max_len:
+                time_global_attention_mask = time_global_attention_mask[:, :max_len]
+                
             freq_global_attention_mask = freq_global_attention_mask.to(device)
+            if args.model == 'long' and freq_global_attention_mask.size(1) > max_len:
+                freq_global_attention_mask = freq_global_attention_mask[:, :max_len]
         
         # Prepare MLM labels: -100 for non-masked tokens
         mlm_labels = torch.full_like(time_labels, -100)
@@ -165,12 +182,29 @@ def validate(model, val_loader, device, args, tokenizer):
             time_labels = batch['time_labels'].to(device)
             afib_label = batch['afib_label'].to(device)
             
+            # Truncate sequences if they exceed model's max length (for Longformer)
+            if args.model == 'long':
+                max_len = model.time_model.config.max_position_embeddings - 2  # Leave room for special tokens
+                if time_input_ids.size(1) > max_len:
+                    time_input_ids = time_input_ids[:, :max_len]
+                    time_attention_mask = time_attention_mask[:, :max_len]
+                    time_labels = time_labels[:, :max_len]
+                
+                if freq_input_ids.size(1) > max_len:
+                    freq_input_ids = freq_input_ids[:, :max_len]
+                    freq_attention_mask = freq_attention_mask[:, :max_len]
+            
             # Handle global attention for Longformer
             time_global_attention_mask = batch.get('time_global_attention_mask')
             freq_global_attention_mask = batch.get('freq_global_attention_mask')
             if time_global_attention_mask is not None:
                 time_global_attention_mask = time_global_attention_mask.to(device)
+                if args.model == 'long' and time_global_attention_mask.size(1) > max_len:
+                    time_global_attention_mask = time_global_attention_mask[:, :max_len]
+                    
                 freq_global_attention_mask = freq_global_attention_mask.to(device)
+                if args.model == 'long' and freq_global_attention_mask.size(1) > max_len:
+                    freq_global_attention_mask = freq_global_attention_mask[:, :max_len]
             
             # Prepare MLM labels: -100 for non-masked tokens
             mlm_labels = torch.full_like(time_labels, -100)
@@ -300,6 +334,10 @@ def main():
         tokenizer = LongformerTokenizer.from_pretrained("allenai/longformer-base-4096")
         time_config = LongformerConfig()
         freq_config = LongformerConfig()
+        
+        # Set higher max position embeddings (default is 4096)
+        time_config.max_position_embeddings = 8192
+        freq_config.max_position_embeddings = 8192
     else:
         raise ValueError(f"Unsupported model type: {args.model}")
     

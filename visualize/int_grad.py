@@ -68,8 +68,10 @@ if __name__ == '__main__':
     torch.manual_seed(123)
     np.random.seed(123)
     
-    norm_test = np.load(f'../data/test_data_by_placement_na_True_True_True_False_False.npy', allow_pickle=True).item()
-    afib_test = np.load(f'../data/test_data_by_placement_na_True_True_True_False_True.npy', allow_pickle=True).item()
+    # norm_test = {np.load(f'../data/test_data_by_placement_na_True_True_True_False_False.npy', allow_pickle=True).item()}
+    # afib_test = np.load(f'../data/test_data_by_placement_na_True_True_True_False_True.npy', allow_pickle=True).item()
+    norm_test = {}
+    afib_test = np.load(f'../data/test_intra.npy', allow_pickle=True).item()
     
     norm_test.update(afib_test)
     

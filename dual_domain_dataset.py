@@ -73,11 +73,16 @@ class DualDomainECGDataset(Dataset):
         afib_token = f"afib_{int(afib_label)}"
         
         # Process time domain
-        min_val, max_val = np.min(signal), np.max(signal)
-        normalized_signal = (signal - min_val) / (max_val - min_val)
+        # Data is already z-score normalized, so we'll clip to reasonable bounds and quantize
+        signal_clipped = np.clip(signal, -10, 10)  # Clip to reasonable bounds
+        normalized_signal = (signal_clipped + 10) / 20  # Scale to [0,1] for quantization
         quantized_signal = np.floor(normalized_signal * self.signal_size).astype(int)
         quantized_signal_tokens = [f"signal_{i}" for i in quantized_signal]
         quantized_signal_ids = self.time_tokenizer.convert_tokens_to_ids(quantized_signal_tokens)
+        
+        # Calculate time domain min/max values
+        time_min_val = np.min(signal_clipped)
+        time_max_val = np.max(signal_clipped)
         
         # Process frequency domain
         freq_tokens, spec_min, spec_max, _, _, _ = self.freq_tokenizer.tokenize(signal)
@@ -182,8 +187,8 @@ class DualDomainECGDataset(Dataset):
             'freq_mask': torch.tensor(freq_mask, dtype=torch.int),
             'afib_label': torch.tensor(afib_label, dtype=torch.long),
             'key': key,
-            'time_min_val': torch.tensor(min_val, dtype=torch.float32),
-            'time_max_val': torch.tensor(max_val, dtype=torch.float32),
+            'time_min_val': torch.tensor(time_min_val, dtype=torch.float32),
+            'time_max_val': torch.tensor(time_max_val, dtype=torch.float32),
             'freq_min_val': torch.tensor(spec_min, dtype=torch.float32),
             'freq_max_val': torch.tensor(spec_max, dtype=torch.float32),
             'raw_signal': torch.tensor(signal, dtype=torch.float32)
