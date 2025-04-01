@@ -8,7 +8,11 @@ import torch
 import argparse
 import os
 import sys
-sys.path.append('..')  # Add parent directory to path
+
+# Adjust the path for imports from the main directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_dir = os.path.dirname(current_dir)
+sys.path.append(project_dir)  # Add the project directory to path
 
 from frequency_tokenizer import FrequencyTokenizer
 from dual_path_model import DualPathECGModel
