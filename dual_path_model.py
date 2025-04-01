@@ -110,6 +110,7 @@ class DualPathECGModel(nn.Module):
                 - mlm_loss: Masked language modeling loss
                 - classification_loss: Classification loss
                 - logits: Token prediction logits
+                - probs: Token prediction probabilities
                 - classification_logits: Classification logits
                 - attentions: Attention weights if output_attentions is True
                 - hidden_states: Hidden states if output_hidden_states is True
@@ -186,8 +187,13 @@ class DualPathECGModel(nn.Module):
         # Get predictions
         logits = self.time_output(fused_features)
         
-        # Apply temperature scaling
-        logits = logits / self.temperature
+        # Apply temperature scaling to logits before softmax
+        # Ensure temperature is positive and properly connected to computation graph
+        temperature = torch.clamp(self.temperature, min=0.1)
+        scaled_logits = logits / temperature
+        
+        # Apply softmax to get probabilities
+        probs = torch.softmax(scaled_logits, dim=-1)
         
         # Calculate losses
         loss = None
@@ -198,9 +204,13 @@ class DualPathECGModel(nn.Module):
             # Calculate masked language modeling loss
             # Only consider positions where time_labels != -100
             active_loss = time_labels.view(-1) != -100
-            active_logits = logits.view(-1, logits.size(-1))[active_loss]
+            active_probs = probs.view(-1, probs.size(-1))[active_loss]
             active_labels = time_labels.view(-1)[active_loss]
-            mlm_loss = self.mlm_loss_fct(active_logits, active_labels)
+            mlm_loss = self.mlm_loss_fct(active_probs, active_labels)
+            
+            # Add temperature regularization to encourage exploration
+            temp_reg = 0.1 * torch.log(temperature)  # Encourage higher temperature
+            mlm_loss = mlm_loss + temp_reg
         
         if class_labels is not None:
             # Calculate classification loss
@@ -219,7 +229,8 @@ class DualPathECGModel(nn.Module):
             'loss': loss,
             'mlm_loss': mlm_loss,
             'classification_loss': classification_loss,
-            'logits': logits,
+            'logits': scaled_logits,  # Return scaled logits
+            'probs': probs,  # Add probabilities to output
             'classification_logits': classification_logits
         }
         
