@@ -434,7 +434,7 @@ def main():
             sys.exit(1)
     
     print(f"Loading checkpoint from: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     
     # Get saved args if available
     if 'args' in checkpoint:
