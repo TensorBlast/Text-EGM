@@ -160,7 +160,7 @@ def inference(model, tokenizer, data_loader, device, args):
             )
             
             # Get model predictions and attentions
-            logits = outputs['logits']
+            logits = outputs['logits']  # Already softmaxed and temperature scaled
             predictions = torch.argmax(logits, dim=-1)
             attentions = outputs.get('attentions', None)
             global_attentions = outputs.get('global_attentions', None)
@@ -169,6 +169,7 @@ def inference(model, tokenizer, data_loader, device, args):
             print("Raw predictions (first few):", predictions[0, :10])
             print("Unique prediction values:", torch.unique(predictions))
             print("Token distribution:", torch.bincount(predictions.flatten()))
+            print("Temperature:", model.temperature.item())
             
             # Process each sample in the batch
             for i in range(time_input_ids.size(0)):
@@ -179,6 +180,29 @@ def inference(model, tokenizer, data_loader, device, args):
                 # Get mask indices for the current sample (skip special tokens)
                 sample_mask = time_mask[i, 1:-2].cpu().numpy()
                 
+                # Debug print statements for token processing
+                print("\nDebug - Token Processing:")
+                print(f"orig_tokens shape: {orig_tokens.shape}")
+                print(f"pred_tokens shape: {pred_tokens.shape}")
+                print(f"sample_mask shape: {sample_mask.shape}")
+                print(f"First few orig_tokens: {orig_tokens[:10]}")
+                print(f"First few pred_tokens: {pred_tokens[:10]}")
+                print(f"First few sample_mask: {sample_mask[:10]}")
+                
+                # Debug print statements for masked tokens
+                print("\nDebug - Masked Tokens:")
+                masked_indices = np.where(sample_mask == 0)[0]
+                print(f"Number of masked positions: {len(masked_indices)}")
+                print(f"Masked original tokens: {[tokenizer.convert_ids_to_tokens(int(t)) for t in orig_tokens[masked_indices]]}")
+                print(f"Masked predicted tokens: {[tokenizer.convert_ids_to_tokens(int(t)) for t in pred_tokens[masked_indices]]}")
+                
+                # Debug print statements for token conversion
+                print("\nDebug - Token Conversion:")
+                print(f"First few pred_tokens: {pred_tokens[:10]}")
+                pred_tokens_list = [tokenizer.convert_ids_to_tokens(int(t)) for t in pred_tokens]
+                print(f"First few converted tokens: {pred_tokens_list[:10]}")
+                print(f"Number of tokens starting with 'signal_': {sum(1 for t in pred_tokens_list if t.startswith('signal_'))}")
+                
                 # Convert token IDs to signal values
                 orig_signal = np.array([int(tokenizer.convert_ids_to_tokens(int(t)).split('_')[1]) 
                                        for t in orig_tokens if tokenizer.convert_ids_to_tokens(int(t)).startswith('signal_')])
@@ -187,11 +211,26 @@ def inference(model, tokenizer, data_loader, device, args):
                 pred_signal = np.array([int(token.split('_')[1]) 
                                       for token in pred_tokens_list if token.startswith('signal_')])
                 
+                # Debug print statements for signal conversion
+                print("\nDebug - Signal Conversion:")
+                print(f"orig_signal shape: {orig_signal.shape}")
+                print(f"pred_signal shape: {pred_signal.shape}")
+                print(f"First few orig_signal: {orig_signal[:10]}")
+                print(f"First few pred_signal: {pred_signal[:10]}")
+                print(f"Number of signal tokens in predictions: {len(pred_signal)}")
+                
                 # Adjust arrays to same length if needed
                 min_len = min(len(orig_signal), len(pred_signal))
                 orig_signal = orig_signal[:min_len]
                 pred_signal = pred_signal[:min_len]
                 sample_mask = sample_mask[:min_len]
+                
+                # Debug print statements for array adjustment
+                print("\nDebug - Array Adjustment:")
+                print(f"min_len: {min_len}")
+                print(f"orig_signal shape after adjustment: {orig_signal.shape}")
+                print(f"pred_signal shape after adjustment: {pred_signal.shape}")
+                print(f"sample_mask shape after adjustment: {sample_mask.shape}")
                 
                 # Denormalize signals back to z-score scale
                 # First convert from [0,1] to [-10,10] range
@@ -224,6 +263,12 @@ def inference(model, tokenizer, data_loader, device, args):
                 masked_positions_i = (sample_mask == 0)
                 preds_masked_i = pred_signal_denorm[masked_positions_i]
                 
+                # Debug print statements for masking
+                print("\nDebug - Masking:")
+                print(f"Number of masked positions: {np.sum(masked_positions_i)}")
+                print(f"masked_positions_i shape: {masked_positions_i.shape}")
+                print(f"preds_masked_i shape: {preds_masked_i.shape}")
+                
                 # Stitch sequences
                 stitched_seq = np.copy(orig_signal)
                 stitched_seq[masked_positions_i] = preds_masked_i
@@ -234,17 +279,26 @@ def inference(model, tokenizer, data_loader, device, args):
                 stitched_sequences.append(stitched_seq[:1000])
                 ground_truth_sequences.append(ground_truth_seq[:1000])
                 
-                # Process AFib predictions
-                afib_pred = torch.argmax(outputs['classification_logits'][i]).item()
-                afib_gt = int(keys[i][-1])  # Get AFib label from key tuple
-                ground_truth_afib.append(afib_gt)
-                pred_afib.append(afib_pred)
+                # Debug print statements for dimensions
+                print("\nDebug - Array Dimensions:")
+                print(f"stitched_seq shape: {stitched_seq.shape}")
+                print(f"ground_truth_seq shape: {ground_truth_seq.shape}")
+                print(f"masked_positions_i shape: {masked_positions_i.shape}")
+                print(f"preds_masked_i shape: {preds_masked_i.shape}")
+                print(f"orig_signal shape: {orig_signal.shape}")
+                print(f"raw_signal[i] shape: {raw_signal[i].shape}")
                 
                 # Calculate metrics
                 mse_signal = mean_squared_error(stitched_seq, ground_truth_seq)
                 mae_signal = mean_absolute_error(stitched_seq, ground_truth_seq)
                 MSEs_signals.append(mse_signal)
                 MAEs_signals.append(mae_signal)
+                
+                # Process AFib predictions
+                afib_pred = torch.argmax(outputs['classification_logits'][i]).item()
+                afib_gt = int(keys[i][-1])  # Get AFib label from key tuple
+                ground_truth_afib.append(afib_gt)
+                pred_afib.append(afib_pred)
                 
                 # Calculate AFib accuracy
                 mean_acc_afib = accuracy_score([afib_pred], [afib_gt])
@@ -270,6 +324,7 @@ def inference(model, tokenizer, data_loader, device, args):
     print("Average Accuracy for AFib:", np.mean(mean_accuracies_afib))
     print(f'Ground Truth Afib: {ground_truth_afib}')
     print(f'Pred Afib: {pred_afib}')
+    print(f'Final Temperature: {model.temperature.item():.4f}')
     
     # Calculate and print confusion matrix metrics
     cm = confusion_matrix(ground_truth_afib, pred_afib)

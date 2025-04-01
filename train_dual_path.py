@@ -364,11 +364,21 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=args.batch, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch, shuffle=False)
     
-    # Create optimizer
+    # Create optimizer with separate learning rates for different components
+    print('Initializing optimizer...')
     model_hidden_size = model.time_hidden_size  # Use time model hidden size
     optimizer = ScheduledOptim(
-        Adam(filter(lambda x: x.requires_grad, model.parameters()),
-            betas=(0.9, 0.98), eps=1e-4, lr=args.lr, weight_decay=args.weight_decay),
+        Adam([
+            {'params': model.time_model.parameters(), 'lr': args.lr},
+            {'params': model.freq_model.parameters(), 'lr': args.lr},
+            {'params': model.cls_fusion.parameters(), 'lr': args.lr},
+            {'params': model.token_fusion.parameters(), 'lr': args.lr},
+            {'params': model.time_proj.parameters(), 'lr': args.lr},
+            {'params': model.freq_proj.parameters(), 'lr': args.lr},
+            {'params': model.time_output.parameters(), 'lr': args.lr},
+            {'params': model.classifier.parameters(), 'lr': args.lr},
+            {'params': model.temperature, 'lr': args.lr * 0.1}  # Lower learning rate for temperature
+        ], betas=(0.9, 0.98), eps=1e-4, weight_decay=args.weight_decay),
         model_hidden_size, args.warmup
     )
     
@@ -402,6 +412,7 @@ def main():
         print(f"  Train Loss: {train_loss:.4f} (MLM: {train_mlm_loss:.4f}, CLS: {train_cls_loss:.4f})")
         print(f"  Val Loss: {val_loss:.4f} (MLM: {val_mlm_loss:.4f}, CLS: {val_cls_loss:.4f})")
         print(f"  Val Accuracy: {val_accuracy:.4f}")
+        print(f"  Temperature: {model.temperature.item():.4f}")
         
         # Save best model
         if val_loss < best_val_loss:

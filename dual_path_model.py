@@ -40,8 +40,28 @@ class DualPathECGModel(nn.Module):
         self.time_hidden_size = time_model_config.hidden_size
         self.freq_hidden_size = freq_model_config.hidden_size
         
-        # Fusion layer
-        self.fusion = nn.Sequential(
+        # Domain-specific processing layers
+        self.time_proj = nn.Sequential(
+            nn.Linear(self.time_hidden_size, self.time_hidden_size),
+            nn.LayerNorm(self.time_hidden_size),
+            NewGELUActivation()
+        )
+        
+        self.freq_proj = nn.Sequential(
+            nn.Linear(self.freq_hidden_size, self.freq_hidden_size),
+            nn.LayerNorm(self.freq_hidden_size),
+            NewGELUActivation()
+        )
+        
+        # Fusion layer for classification
+        self.cls_fusion = nn.Sequential(
+            nn.Linear(self.time_hidden_size + self.freq_hidden_size, fusion_dim),
+            nn.LayerNorm(fusion_dim),
+            NewGELUActivation()
+        )
+        
+        # Fusion layer for token prediction
+        self.token_fusion = nn.Sequential(
             nn.Linear(self.time_hidden_size + self.freq_hidden_size, fusion_dim),
             nn.LayerNorm(fusion_dim),
             NewGELUActivation()
@@ -54,6 +74,9 @@ class DualPathECGModel(nn.Module):
         # Loss functions
         self.mlm_loss_fct = nn.CrossEntropyLoss()
         self.classifier_loss_fct = nn.CrossEntropyLoss()
+        
+        # Temperature parameter for controlling prediction diversity
+        self.temperature = nn.Parameter(torch.ones(1))
     
     def forward(self, 
                 time_input_ids, 
@@ -129,23 +152,24 @@ class DualPathECGModel(nn.Module):
         time_sequence = time_outputs.last_hidden_state
         freq_sequence = freq_outputs.last_hidden_state
         
+        # Apply domain-specific processing
+        time_sequence = self.time_proj(time_sequence)
+        freq_sequence = self.freq_proj(freq_sequence)
+        
         # Get CLS token for classification
         time_cls = time_sequence[:, 0, :]
         freq_cls = freq_sequence[:, 0, :]
         
         # Fuse CLS tokens for classification
         cls_fusion = torch.cat([time_cls, freq_cls], dim=-1)
-        cls_fused_features = self.fusion(cls_fusion)
+        cls_fused_features = self.cls_fusion(cls_fusion)
         classification_logits = self.classifier(cls_fused_features)
         
         # Align sequence lengths if needed for token prediction
-        # We'll use the time domain sequence length as reference
         aligned_freq_sequence = freq_sequence
         if time_sequence.size(1) != freq_sequence.size(1):
-            # If freq sequence is longer, truncate
             if freq_sequence.size(1) > time_sequence.size(1):
                 aligned_freq_sequence = freq_sequence[:, :time_sequence.size(1), :]
-            # If freq sequence is shorter, pad with zeros
             else:
                 padding = torch.zeros(
                     freq_sequence.size(0), 
@@ -155,12 +179,15 @@ class DualPathECGModel(nn.Module):
                 )
                 aligned_freq_sequence = torch.cat([freq_sequence, padding], dim=1)
         
-        # Concatenate and fuse sequence features
+        # Fuse sequence features for token prediction
         fused_sequence = torch.cat([time_sequence, aligned_freq_sequence], dim=-1)
-        fused_features = self.fusion(fused_sequence)
+        fused_features = self.token_fusion(fused_sequence)
         
-        # Get token prediction logits (for MLM task)
+        # Get predictions
         logits = self.time_output(fused_features)
+        
+        # Apply temperature scaling
+        logits = logits / self.temperature
         
         # Calculate losses
         loss = None

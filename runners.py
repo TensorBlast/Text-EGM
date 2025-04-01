@@ -187,17 +187,15 @@ def decode_from_tokens(tokenizer, tokens, signal_size, min_vals, max_vals, args)
     for i in range(tokens.shape[0]):
         output_tokens = tokenizer.convert_ids_to_tokens(tokens[i])
         
+        # Extract signal values from tokens
         quantized_signal = torch.tensor([extract_value(token) for token in output_tokens[1:1001]]).to(args.device)
-            
-    
         quantized_afib = torch.tensor([extract_value(token) for token in [output_tokens[-2]]]).to(args.device)
-                
-        min_val = min_vals[i]
-        max_val = max_vals[i]
         
-        # Decode signal
-        normalized_signal_values = (quantized_signal - 1) / (signal_size - 1)
-        decoded_signal = normalized_signal_values * (max_val - min_val) + min_val
+        # Convert from quantized values back to [-10,10] range
+        # First convert from [0,signal_size] to [0,1]
+        normalized_signal = quantized_signal / signal_size
+        # Then convert from [0,1] to [-10,10]
+        decoded_signal = normalized_signal * 20 - 10
         
         decoded_signals.append(decoded_signal)
         decoded_afibs.append(quantized_afib)

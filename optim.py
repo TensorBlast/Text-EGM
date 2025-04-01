@@ -8,6 +8,9 @@ class ScheduledOptim():
         self.n_warmup_steps = n_warmup_steps
         self.n_current_steps = 0
         self.init_lr = np.power(d_model, -0.5)
+        
+        # Store the original learning rates for each param group
+        self.original_lrs = [group['lr'] for group in optimizer.param_groups]
 
     def step_and_update_lr(self):
         "Step with the inner optimizer"
@@ -30,14 +33,14 @@ class ScheduledOptim():
             np.power(self.n_warmup_steps, -1.5) * self.n_current_steps])
 
     def _update_learning_rate(self):
-
         self.n_current_steps += 1
-        lr = self.init_lr * self._get_lr_scale()
+        lr_scale = self._get_lr_scale()
+        
+        # Apply warmup scaling while maintaining relative learning rates
+        for param_group, original_lr in zip(self._optimizer.param_groups, self.original_lrs):
+            param_group['lr'] = original_lr * lr_scale
 
-        for param_group in self._optimizer.param_groups:
-            param_group['lr'] = lr
-            
-            
+
 class EarlyStopping:
     def __init__(self, patience=5, delta=0):
         self.patience = patience

@@ -289,13 +289,19 @@ def get_integrated_gradients(model, device, signal_data, afib_label):
     if freq_attributions.max() != 0:
         freq_attributions = freq_attributions / freq_attributions.max()
     
+    # Apply temperature scaling to attributions
+    if hasattr(model, 'temperature'):
+        temperature = model.temperature.item()
+        time_attributions = time_attributions * temperature  # Multiply by temperature to get true attributions
+        freq_attributions = freq_attributions * temperature  # Multiply by temperature to get true attributions
+    
     return time_attributions, freq_attributions
 
 
 def visualize_dual_domain(signal, time_attributions, freq_attributions, freqs, times, 
-                          quantized_spec, signal_data, key, args, cf_label=""):
+                          quantized_spec, signal_data, key, args, model, cf_label=""):
     """Visualize time and frequency domain attributions side by side"""
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 15))
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(12, 20))
     
     # Time domain visualization
     ax1.plot(signal, label='Signal', color='blue', alpha=0.7)
@@ -350,6 +356,15 @@ def visualize_dual_domain(signal, time_attributions, freq_attributions, freqs, t
         ax3.set_title('Frequency Domain: Raw Attribution Scores')
         ax3.set_xlabel('Token Index')
         ax3.set_ylabel('Attribution Score')
+    
+    # Add temperature information
+    if hasattr(model, 'temperature'):
+        temperature = model.temperature.item()
+        ax4.text(0.5, 0.5, f'Model Temperature: {temperature:.4f}', 
+                horizontalalignment='center', verticalalignment='center',
+                transform=ax4.transAxes, fontsize=12)
+        ax4.set_title('Model Temperature')
+        ax4.axis('off')
     
     plt.tight_layout()
     
@@ -472,12 +487,12 @@ def main():
         # Get attributions
         time_attr, freq_attr = get_integrated_gradients(model, device, signal_data, afib_label)
         
-        # Visualize
+        # Visualize original signal
         visualize_dual_domain(
             signal, time_attr, freq_attr, 
             signal_data['freqs'], signal_data['times'], 
             signal_data['quantized_spec'],
-            signal_data, key, args, "original"
+            signal_data, key, args, model, "original"
         )
         
         # If counterfactual analysis is enabled, also process counterfactuals
@@ -497,7 +512,7 @@ def main():
                     moving_average(signal), ts_time_attr, ts_freq_attr, 
                     ts_signal_data['freqs'], ts_signal_data['times'], 
                     ts_signal_data['quantized_spec'],
-                    ts_signal_data, key, ts_args, "TS"
+                    ts_signal_data, key, ts_args, model, "TS"
                 )
             
             # TA counterfactual - added tokens
@@ -515,7 +530,7 @@ def main():
                     signal, ta_time_attr, ta_freq_attr, 
                     ta_signal_data['freqs'], ta_signal_data['times'], 
                     ta_signal_data['quantized_spec'],
-                    ta_signal_data, key, ta_args, "TA"
+                    ta_signal_data, key, ta_args, model, "TA"
                 )
             
             # LF counterfactual - flipped label
@@ -533,7 +548,7 @@ def main():
                     signal, lf_time_attr, lf_freq_attr, 
                     lf_signal_data['freqs'], lf_signal_data['times'], 
                     lf_signal_data['quantized_spec'],
-                    lf_signal_data, key, lf_args, "LF"
+                    lf_signal_data, key, lf_args, model, "LF"
                 )
     
     print(f"Visualizations saved to {args.output_dir}")
