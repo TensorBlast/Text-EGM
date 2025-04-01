@@ -386,7 +386,7 @@ def main():
     args = get_args()
     
     # Construct proper checkpoint path
-    checkpoint_base = os.path.join("./runs/checkpoint", args.checkpoint)
+    checkpoint_base = os.path.join("./runs/checkpoint/dual_path", args.checkpoint)
     # if not os.path.exists(checkpoint_base):
     #     # Try looking in just the provided path directly
     #     if os.path.exists(args.checkpoint):
