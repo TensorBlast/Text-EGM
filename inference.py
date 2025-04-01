@@ -30,6 +30,8 @@ def get_args():
     parser.add_argument('--LF', action='store_true', help = 'Please choose whether to do label flipping')    
     parser.add_argument('--toy', action = 'store_true', help = 'Please choose whether to use a toy dataset or not')
     parser.add_argument('--inference', action='store_true', help = 'Please choose whether it is inference or not')
+    parser.add_argument('--save_visualizations', action='store_true', help = 'Save visualizations of model predictions')
+    parser.add_argument('--num_vis_samples', type=int, default=5, help='Number of samples to visualize')
     return parser.parse_args()
 
 def create_toy(dataset, spec_ind):
@@ -188,7 +190,11 @@ if __name__ == '__main__':
         
     test_loader = DataLoader(test_dataset, batch_size=args.batch, shuffle=False)   
     
-    checkpoint = torch.load(f'./runs/checkpoint/{args.checkpoint}/best_checkpoint.chkpt', map_location = device)
+    # Ensure the checkpoint directory exists
+    checkpoint_dir = f'./runs/checkpoint/{args.checkpoint}'
+    ensure_directory_exists(checkpoint_dir)
+    
+    checkpoint = torch.load(f'{checkpoint_dir}/best_checkpoint.chkpt', map_location = device)
     model.load_state_dict(checkpoint['model'])
     print(f'Inferencing checkpoint {args.checkpoint}... ')
     inference(model, tokenizer, test_loader, device, args)

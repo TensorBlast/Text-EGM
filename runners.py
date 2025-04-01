@@ -3,6 +3,8 @@ from sklearn.metrics import accuracy_score
 from tqdm import tqdm
 import numpy as np
 from sklearn.metrics import mean_squared_error, accuracy_score, confusion_matrix, mean_absolute_error
+import os
+from visualize.visualize_inference import visualize_inference_results
 
 def trainer(model, train_dataloader, optimizer, device, args, ce = None):
     model.train()  
@@ -379,7 +381,7 @@ def inference(model, tokenizer, test_dataloader, device, args):
         sensitivity = TP / float(TP + FN) if (TP + FN) != 0 else 0
         specificity = TN / float(TN + FP) if (TN + FP) != 0 else 0
         npv = TN / float(TN + FN) if (TN + FN) != 0 else 0
-        ppv = TP / float(TP + FP) if (TP + FP) != 0 else 0
+        ppv = TP / float(TP + FP) if (TP + FP) > 0 else 0
         print("Sensitivity:", sensitivity)
         print("Specificity:", specificity)
         print("NPV:", npv)
@@ -415,4 +417,25 @@ def inference(model, tokenizer, test_dataloader, device, args):
             'tokens' : all_tokens,
             'index': count_index_list
         }
-    np.save(f'./runs/checkpoint/{args.checkpoint}/best_np.npy', np_save)
+    
+    # Make sure the checkpoint directory exists
+    checkpoint_dir = f'./runs/checkpoint/{args.checkpoint}'
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
+        
+    # Save the results
+    np.save(f'{checkpoint_dir}/best_np.npy', np_save)
+    
+    # Run visualizations if requested
+    if hasattr(args, 'save_visualizations') and args.save_visualizations:
+        print("Generating visualizations...")
+        num_samples = args.num_vis_samples if hasattr(args, 'num_vis_samples') else 5
+        visualize_inference_results(
+            checkpoint_path=checkpoint_dir,
+            num_samples=num_samples,
+            time_range=1,
+            output_dir=f"{checkpoint_dir}/visualizations"
+        )
+        print(f"Visualizations saved to {checkpoint_dir}/visualizations")
+        
+    return np_save
