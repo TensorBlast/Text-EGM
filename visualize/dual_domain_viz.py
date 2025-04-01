@@ -385,9 +385,32 @@ def main():
     # Get command line arguments
     args = get_args()
     
+    # Construct proper checkpoint path
+    checkpoint_base = os.path.join("./runs/checkpoint", args.checkpoint)
+    if not os.path.exists(checkpoint_base):
+        # Try looking in just the provided path directly
+        if os.path.exists(args.checkpoint):
+            checkpoint_base = args.checkpoint
+        else:
+            print(f"Warning: Checkpoint directory not found at {checkpoint_base}")
+            print(f"Trying alternative paths...")
+            
+            # Try alternate paths
+            alt_path = os.path.join("../runs/checkpoint", args.checkpoint)
+            if os.path.exists(alt_path):
+                checkpoint_base = alt_path
+            else:
+                print(f"Error: Could not locate checkpoint directory. Tried:")
+                print(f"  - {checkpoint_base}")
+                print(f"  - {args.checkpoint}")
+                print(f"  - {alt_path}")
+                sys.exit(1)
+            
+    print(f"Using checkpoint base directory: {checkpoint_base}")
+    
     # Set output directory
     if args.output_dir is None:
-        args.output_dir = os.path.join(args.checkpoint, 'visualizations')
+        args.output_dir = os.path.join(checkpoint_base, 'visualizations')
     ensure_directory_exists(args.output_dir)
     
     # Set device
@@ -395,7 +418,22 @@ def main():
     print(f"Using device: {device}")
     
     # Load model checkpoint
-    checkpoint_path = os.path.join(args.checkpoint, args.model_file)
+    checkpoint_path = os.path.join(checkpoint_base, args.model_file)
+    
+    if not os.path.exists(checkpoint_path):
+        # Try looking for best_checkpoint.chkpt if best_model.pt is not found
+        alt_checkpoint_path = os.path.join(checkpoint_base, 'best_checkpoint.chkpt')
+        if os.path.exists(alt_checkpoint_path):
+            checkpoint_path = alt_checkpoint_path
+            print(f"Using alternative checkpoint file: {checkpoint_path}")
+        else:
+            print(f"Error: Model file not found at {checkpoint_path} or {alt_checkpoint_path}")
+            print(f"Available files in {checkpoint_base}:")
+            for file in os.listdir(checkpoint_base):
+                print(f"  - {file}")
+            sys.exit(1)
+    
+    print(f"Loading checkpoint from: {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location=device)
     
     # Get saved args if available
