@@ -178,7 +178,7 @@ if __name__ == '__main__':
     model.to(device)
     model.eval()
     model.zero_grad()
-    lig = LayerIntegratedGradients(forward_func, model.embeddings)
+    lig = LayerIntegratedGradients(forward_func, model.longformer.embeddings)
     
     mask_token =  tokenizer.cls_token
     cls_token =  tokenizer.mask_token
