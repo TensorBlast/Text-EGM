@@ -6,7 +6,7 @@ from transformers import BigBirdForMaskedLM, LongformerForMaskedLM, BigBirdToken
                             ViTForMaskedImageModeling, LongformerConfig
 import argparse
 from data_loader import EGMDataset, EGMIMGDataset, EGMTSDataset
-from models import VITModel, TimeSeriesModel, TorchECGWrapper
+from models import VITModel, TimeSeriesModel
 from torch.utils.data import DataLoader
 import gc
 from runners import inference
