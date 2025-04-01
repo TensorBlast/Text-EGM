@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import os
 
 from optim import ScheduledOptim, early_stopping
-from models import VITModel, TimeSeriesModel, TorchECGWrapper
+from models import VITModel, TimeSeriesModel
 from runners import trainer, validate
 
 def get_args():
