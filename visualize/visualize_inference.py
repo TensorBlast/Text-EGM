@@ -23,6 +23,9 @@ def plot_signal_comparison(time, gt_signal, pred_signal, masked_positions, sampl
     """Plot comparison between ground truth and predicted signal with masked regions highlighted"""
     plt.figure(figsize=(12, 6))
     
+    # Filter masked positions to ensure they're within bounds
+    valid_mask = np.array([pos for pos in masked_positions if pos < len(time)])
+    
     # Plot ground truth
     plt.plot(time, gt_signal, color='blue', alpha=0.7, label='Ground Truth')
     
@@ -30,13 +33,14 @@ def plot_signal_comparison(time, gt_signal, pred_signal, masked_positions, sampl
     plt.plot(time, pred_signal, color='red', alpha=0.7, label='Predicted')
     
     # Highlight masked regions
-    for pos in masked_positions:
+    for pos in valid_mask:
         if pos < len(time):
             plt.axvspan(time[pos]-0.001, time[pos]+0.001, color='gray', alpha=0.3)
     
     # Mark masked positions that were predicted
-    plt.scatter(time[masked_positions], pred_signal[masked_positions], 
-                color='green', s=25, alpha=0.8, label='Masked Positions')
+    if len(valid_mask) > 0:
+        plt.scatter(time[valid_mask], pred_signal[valid_mask], 
+                    color='green', s=25, alpha=0.8, label='Masked Positions')
     
     plt.title(f'Signal Comparison - Sample {sample_idx}')
     plt.xlabel('Time (s)')
@@ -136,12 +140,30 @@ def visualize_inference_results(checkpoint_path, num_samples=5, time_range=1, ou
         
         # Plot signal comparisons
         for i in range(num_to_visualize):
-            if i < len(results['masked_signals']):
+            if i < len(results['masked_signals']) and i < len(results['pred_signals']):
+                # Ensure arrays have compatible sizes
+                gt_signal = results['gt_signals'][i]
+                pred_signal = results['pred_signals'][i]
+                masked_positions = results['masked_signals'][i]
+                
+                # Trim arrays to ensure they match time array length
+                length = min(len(gt_signal), len(pred_signal), len(time))
+                gt_signal = gt_signal[:length]
+                pred_signal = pred_signal[:length]
+                
+                # Log diagnostic information 
+                print(f"Sample {i}:")
+                print(f"  Time array shape: {time.shape}")
+                print(f"  Ground truth signal shape: {gt_signal.shape}")
+                print(f"  Predicted signal shape: {pred_signal.shape}")
+                print(f"  Masked positions count: {len(masked_positions)}")
+                print(f"  Masked positions range: {masked_positions.min() if len(masked_positions) > 0 else 'N/A'} - {masked_positions.max() if len(masked_positions) > 0 else 'N/A'}")
+                
                 plot_signal_comparison(
                     time, 
-                    results['gt_signals'][i], 
-                    results['pred_signals'][i], 
-                    results['masked_signals'][i], 
+                    gt_signal, 
+                    pred_signal, 
+                    masked_positions, 
                     i, 
                     output_dir
                 )
@@ -156,23 +178,26 @@ def visualize_inference_results(checkpoint_path, num_samples=5, time_range=1, ou
                 break
                 
             # Plot attention for each layer and head
-            for layer_idx, layer_attention in enumerate(sample_attention[0]):
-                if layer_idx % 2 == 0:  # Plot every other layer to reduce output
-                    num_heads = layer_attention.shape[0]
-                    for head_idx in range(min(2, num_heads)):  # Plot first 2 heads
-                        # Sample down for visualization if matrix is too large
-                        attn = layer_attention[head_idx]
-                        if attn.shape[0] > 100:
-                            step = attn.shape[0] // 100
-                            attn = attn[::step, ::step]
-                            
-                        plot_attention_heatmap(
-                            attn,
-                            sample_idx,
-                            layer_idx,
-                            head_idx,
-                            output_dir
-                        )
+            try:
+                for layer_idx, layer_attention in enumerate(sample_attention[0]):
+                    if layer_idx % 2 == 0:  # Plot every other layer to reduce output
+                        num_heads = layer_attention.shape[0]
+                        for head_idx in range(min(2, num_heads)):  # Plot first 2 heads
+                            # Sample down for visualization if matrix is too large
+                            attn = layer_attention[head_idx]
+                            if attn.shape[0] > 100:
+                                step = attn.shape[0] // 100
+                                attn = attn[::step, ::step]
+                                
+                            plot_attention_heatmap(
+                                attn,
+                                sample_idx,
+                                layer_idx,
+                                head_idx,
+                                output_dir
+                            )
+            except Exception as e:
+                print(f"Error plotting attention for sample {sample_idx}: {e}")
     
     # Visualize global attention for Longformer if available
     if 'global_attentions' in results and len(results['global_attentions']) > 0:
@@ -182,32 +207,38 @@ def visualize_inference_results(checkpoint_path, num_samples=5, time_range=1, ou
                 break
                 
             # Plot global attention for selected layers and heads
-            for layer_idx, layer_global_attention in enumerate(sample_global_attention[0]):
-                if layer_idx % 4 == 0:  # Plot fewer layers
-                    num_heads = layer_global_attention.shape[0]
-                    for head_idx in range(min(1, num_heads)):  # Plot just first head
-                        plot_global_attention(
-                            layer_global_attention[head_idx],
-                            sample_idx,
-                            layer_idx,
-                            head_idx,
-                            output_dir
-                        )
+            try:
+                for layer_idx, layer_global_attention in enumerate(sample_global_attention[0]):
+                    if layer_idx % 4 == 0:  # Plot fewer layers
+                        num_heads = layer_global_attention.shape[0]
+                        for head_idx in range(min(1, num_heads)):  # Plot just first head
+                            plot_global_attention(
+                                layer_global_attention[head_idx],
+                                sample_idx,
+                                layer_idx,
+                                head_idx,
+                                output_dir
+                            )
+            except Exception as e:
+                print(f"Error plotting global attention for sample {sample_idx}: {e}")
     
     # Plot classification results
     if 'gt_afib' in results and 'pred_afib' in results:
         print("Plotting classification metrics")
-        metrics = plot_confusion_matrix(
-            results['gt_afib'],
-            results['pred_afib'],
-            output_dir
-        )
-        
-        # Save metrics to text file
-        with open(f"{output_dir}/classification_metrics.txt", 'w') as f:
-            for metric, value in metrics.items():
-                f.write(f"{metric}: {value:.4f}\n")
-                print(f"{metric}: {value:.4f}")
+        try:
+            metrics = plot_confusion_matrix(
+                results['gt_afib'],
+                results['pred_afib'],
+                output_dir
+            )
+            
+            # Save metrics to text file
+            with open(f"{output_dir}/classification_metrics.txt", 'w') as f:
+                for metric, value in metrics.items():
+                    f.write(f"{metric}: {value:.4f}\n")
+                    print(f"{metric}: {value:.4f}")
+        except Exception as e:
+            print(f"Error plotting confusion matrix: {e}")
 
 if __name__ == '__main__':
     args = get_args()
