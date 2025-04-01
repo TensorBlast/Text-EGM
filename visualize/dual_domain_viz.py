@@ -131,7 +131,7 @@ def preprocess_signal(signal, args, afib_label, tokenizer, freq_tokenizer):
         freq_tokens_list2 = freq_tokens_list
     
     # Create masks for time domain (75% masking)
-    time_mask = np.ones_like(time_tokens)
+    time_mask = np.ones_like(time_tokens, dtype=np.int64)
     mask_indices_time = np.random.choice(
         len(quantized_signal_ids), int(0.75 * len(quantized_signal_ids)), replace=False
     )
@@ -139,7 +139,7 @@ def preprocess_signal(signal, args, afib_label, tokenizer, freq_tokenizer):
     time_mask[-2] = 0  # Always mask the AFib label
     
     # Create masks for frequency domain (75% masking)
-    freq_mask = np.ones_like(freq_tokens_list)
+    freq_mask = np.ones_like(freq_tokens_list, dtype=np.int64)
     mask_indices_freq = np.random.choice(
         len(freq_token_ids), int(0.75 * len(freq_token_ids)), replace=False
     )
@@ -147,27 +147,27 @@ def preprocess_signal(signal, args, afib_label, tokenizer, freq_tokenizer):
     freq_mask[-2] = 0  # Always mask the AFib label
     
     # Create attention masks
-    time_attention_mask = np.ones_like(time_tokens)
-    freq_attention_mask = np.ones_like(freq_tokens_list)
+    time_attention_mask = np.ones_like(time_tokens, dtype=np.int64)
+    freq_attention_mask = np.ones_like(freq_tokens_list, dtype=np.int64)
     
     # Apply masks
     if args.TA:
-        time_masked_sample = np.copy(time_tokens2)
-        freq_masked_sample = np.copy(freq_tokens_list2)
+        time_masked_sample = np.array(time_tokens2, dtype=np.int64)
+        freq_masked_sample = np.array(freq_tokens_list2, dtype=np.int64)
     else:
-        time_masked_sample = np.copy(time_tokens)
-        freq_masked_sample = np.copy(freq_tokens_list)
+        time_masked_sample = np.array(time_tokens, dtype=np.int64)
+        freq_masked_sample = np.array(freq_tokens_list, dtype=np.int64)
         
     time_masked_sample[time_mask == 0] = mask_id
     freq_masked_sample[freq_mask == 0] = mask_id
     
     # Create global attention masks for Longformer if needed
     if args.model == 'long':
-        time_global_attention_mask = np.zeros_like(time_tokens)
+        time_global_attention_mask = np.zeros_like(time_tokens, dtype=np.int64)
         time_global_attention_mask[0] = 1  # Global attention on CLS token
         time_global_attention_mask[-2] = 1  # Global attention on AFib token
         
-        freq_global_attention_mask = np.zeros_like(freq_tokens_list)
+        freq_global_attention_mask = np.zeros_like(freq_tokens_list, dtype=np.int64)
         freq_global_attention_mask[0] = 1  # Global attention on CLS token
         freq_global_attention_mask[-2] = 1  # Global attention on AFib token
     else:
@@ -177,8 +177,8 @@ def preprocess_signal(signal, args, afib_label, tokenizer, freq_tokenizer):
     result = {
         'time_input_ids': time_masked_sample,
         'freq_input_ids': freq_masked_sample,
-        'time_labels': time_tokens,
-        'freq_labels': freq_tokens_list,
+        'time_labels': np.array(time_tokens, dtype=np.int64),
+        'freq_labels': np.array(freq_tokens_list, dtype=np.int64),
         'time_attention_mask': time_attention_mask,
         'freq_attention_mask': freq_attention_mask,
         'time_mask': time_mask,
@@ -200,21 +200,21 @@ def preprocess_signal(signal, args, afib_label, tokenizer, freq_tokenizer):
 def get_integrated_gradients(model, device, signal_data, afib_label):
     """Calculate integrated gradients for both time and frequency domains"""
     # Prepare inputs
-    time_input_ids = torch.LongTensor(signal_data['time_input_ids']).unsqueeze(0).to(device)
-    freq_input_ids = torch.LongTensor(signal_data['freq_input_ids']).unsqueeze(0).to(device)
-    time_attention_mask = torch.tensor(signal_data['time_attention_mask'], dtype=torch.int).unsqueeze(0).to(device)
-    freq_attention_mask = torch.tensor(signal_data['freq_attention_mask'], dtype=torch.int).unsqueeze(0).to(device)
+    time_input_ids = torch.tensor(signal_data['time_input_ids'], dtype=torch.long).unsqueeze(0).to(device)
+    freq_input_ids = torch.tensor(signal_data['freq_input_ids'], dtype=torch.long).unsqueeze(0).to(device)
+    time_attention_mask = torch.tensor(signal_data['time_attention_mask'], dtype=torch.long).unsqueeze(0).to(device)
+    freq_attention_mask = torch.tensor(signal_data['freq_attention_mask'], dtype=torch.long).unsqueeze(0).to(device)
     
     # Prepare global attention masks if using Longformer
     time_global_attention_mask = signal_data['time_global_attention_mask']
     freq_global_attention_mask = signal_data['freq_global_attention_mask']
     if time_global_attention_mask is not None:
-        time_global_attention_mask = torch.tensor(time_global_attention_mask, dtype=torch.int).unsqueeze(0).to(device)
-        freq_global_attention_mask = torch.tensor(freq_global_attention_mask, dtype=torch.int).unsqueeze(0).to(device)
+        time_global_attention_mask = torch.tensor(time_global_attention_mask, dtype=torch.long).unsqueeze(0).to(device)
+        freq_global_attention_mask = torch.tensor(freq_global_attention_mask, dtype=torch.long).unsqueeze(0).to(device)
     
     # Create baseline inputs (all padding tokens)
-    time_baseline = torch.full_like(time_input_ids, model.time_model.config.pad_token_id)
-    freq_baseline = torch.full_like(freq_input_ids, model.freq_model.config.pad_token_id)
+    time_baseline = torch.full_like(time_input_ids, model.time_model.config.pad_token_id, dtype=torch.long)
+    freq_baseline = torch.full_like(freq_input_ids, model.freq_model.config.pad_token_id, dtype=torch.long)
     
     # Keep CLS and SEP tokens the same as original
     time_baseline[:, 0] = time_input_ids[:, 0]  # CLS token
@@ -244,44 +244,60 @@ def get_integrated_gradients(model, device, signal_data, afib_label):
     # Calculate attributions
     target_class = int(afib_label)
     
-    if time_global_attention_mask is not None:
-        attributions = ig.attribute(
-            inputs=(
-                time_input_ids, 
-                time_attention_mask,
-                freq_input_ids,
-                freq_attention_mask,
-                time_global_attention_mask,
-                freq_global_attention_mask
-            ),
-            baselines=(
-                time_baseline,
-                torch.zeros_like(time_attention_mask),
-                freq_baseline,
-                torch.zeros_like(freq_attention_mask),
-                torch.zeros_like(time_global_attention_mask),
-                torch.zeros_like(freq_global_attention_mask)
-            ),
-            target=target_class,
-            n_steps=50
-        )
-    else:
-        attributions = ig.attribute(
-            inputs=(
-                time_input_ids, 
-                time_attention_mask,
-                freq_input_ids,
-                freq_attention_mask
-            ),
-            baselines=(
-                time_baseline,
-                torch.zeros_like(time_attention_mask),
-                freq_baseline,
-                torch.zeros_like(freq_attention_mask)
-            ),
-            target=target_class,
-            n_steps=50
-        )
+    # Setup baselines for attention masks
+    time_attn_baseline = torch.zeros_like(time_attention_mask, dtype=torch.long)
+    freq_attn_baseline = torch.zeros_like(freq_attention_mask, dtype=torch.long)
+    
+    try:
+        if time_global_attention_mask is not None:
+            time_global_baseline = torch.zeros_like(time_global_attention_mask, dtype=torch.long)
+            freq_global_baseline = torch.zeros_like(freq_global_attention_mask, dtype=torch.long)
+            
+            attributions = ig.attribute(
+                inputs=(
+                    time_input_ids, 
+                    time_attention_mask,
+                    freq_input_ids,
+                    freq_attention_mask,
+                    time_global_attention_mask,
+                    freq_global_attention_mask
+                ),
+                baselines=(
+                    time_baseline,
+                    time_attn_baseline,
+                    freq_baseline,
+                    freq_attn_baseline,
+                    time_global_baseline,
+                    freq_global_baseline
+                ),
+                target=target_class,
+                n_steps=50
+            )
+        else:
+            attributions = ig.attribute(
+                inputs=(
+                    time_input_ids, 
+                    time_attention_mask,
+                    freq_input_ids,
+                    freq_attention_mask
+                ),
+                baselines=(
+                    time_baseline,
+                    time_attn_baseline,
+                    freq_baseline,
+                    freq_attn_baseline
+                ),
+                target=target_class,
+                n_steps=50
+            )
+    except Exception as e:
+        print(f"Error in integrated gradients calculation: {str(e)}")
+        print(f"Input shapes - time_input_ids: {time_input_ids.shape}, freq_input_ids: {freq_input_ids.shape}")
+        print(f"Input dtypes - time_input_ids: {time_input_ids.dtype}, freq_input_ids: {freq_input_ids.dtype}")
+        # Return empty attributions as fallback
+        empty_time_attr = np.zeros(len(signal_data['time_input_ids']))
+        empty_freq_attr = np.zeros(len(signal_data['freq_input_ids']))
+        return empty_time_attr, empty_freq_attr
     
     # Process attributions - sum across dimensions
     time_attributions = attributions[0].sum(dim=-1).squeeze(0).detach().cpu().numpy()
