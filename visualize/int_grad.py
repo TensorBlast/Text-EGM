@@ -40,7 +40,7 @@ def plot_attributions(signal, attributions, key, mask, args):
     ax.set_ylabel('Signal Amplitude', fontsize='large', fontweight='bold')
     ax2.set_ylabel('Attribution Score', fontsize='large', fontweight='bold')
 
-    plt.savefig(f'../runs/checkpoint/{args.checkpoint}/attribution_score_{key}_{args.pre}_{args.afibmask}_{args.TS}_{args.TA}_{args.LF}_{args.CF}.png')
+    plt.savefig(f'./runs/checkpoint/{args.checkpoint}/attribution_score_{key}_{args.pre}_{args.afibmask}_{args.TS}_{args.TA}_{args.LF}_{args.CF}.png')
 
 
 def label_flip(afib_label):
@@ -173,7 +173,7 @@ if __name__ == '__main__':
         model_hidden_size = model.config.hidden_size
         
     if args.pre:
-        checkpoint = torch.load(f'../runs/checkpoint/{args.checkpoint}/best_checkpoint.chkpt', map_location = device_name)    
+        checkpoint = torch.load(f'./runs/checkpoint/{args.checkpoint}/best_checkpoint.chkpt', map_location = device_name)    
         model.load_state_dict(checkpoint['model'])
     model.to(device)
     model.eval()
@@ -288,4 +288,4 @@ if __name__ == '__main__':
             'attr' : normalized_attributions.tolist(),
             'mask' : mask[1:1001 + len_sampled_quantized_augsignal_ids]
         }
-    np.save(f'../runs/checkpoint/{args.checkpoint}/att_dic_{args.pre}_{args.afibmask}_{args.TS}_{args.TA}_{args.LF}_{args.CF}.npy', np_dic)
+    np.save(f'./runs/checkpoint/{args.checkpoint}/att_dic_{args.pre}_{args.afibmask}_{args.TS}_{args.TA}_{args.LF}_{args.CF}.npy', np_dic)
