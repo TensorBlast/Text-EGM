@@ -387,24 +387,24 @@ def main():
     
     # Construct proper checkpoint path
     checkpoint_base = os.path.join("./runs/checkpoint", args.checkpoint)
-    if not os.path.exists(checkpoint_base):
-        # Try looking in just the provided path directly
-        if os.path.exists(args.checkpoint):
-            checkpoint_base = args.checkpoint
-        else:
-            print(f"Warning: Checkpoint directory not found at {checkpoint_base}")
-            print(f"Trying alternative paths...")
+    # if not os.path.exists(checkpoint_base):
+    #     # Try looking in just the provided path directly
+    #     if os.path.exists(args.checkpoint):
+    #         checkpoint_base = args.checkpoint
+    #     else:
+    #         print(f"Warning: Checkpoint directory not found at {checkpoint_base}")
+    #         print(f"Trying alternative paths...")
             
-            # Try alternate paths
-            alt_path = os.path.join("../runs/checkpoint", args.checkpoint)
-            if os.path.exists(alt_path):
-                checkpoint_base = alt_path
-            else:
-                print(f"Error: Could not locate checkpoint directory. Tried:")
-                print(f"  - {checkpoint_base}")
-                print(f"  - {args.checkpoint}")
-                print(f"  - {alt_path}")
-                sys.exit(1)
+    #         # Try alternate paths
+    #         alt_path = os.path.join("../runs/checkpoint", args.checkpoint)
+    #         if os.path.exists(alt_path):
+    #             checkpoint_base = alt_path
+    #         else:
+    #             print(f"Error: Could not locate checkpoint directory. Tried:")
+    #             print(f"  - {checkpoint_base}")
+    #             print(f"  - {args.checkpoint}")
+    #             print(f"  - {alt_path}")
+    #             sys.exit(1)
             
     print(f"Using checkpoint base directory: {checkpoint_base}")
     
