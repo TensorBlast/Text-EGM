@@ -142,7 +142,7 @@ if __name__ == '__main__':
         custom_tokens += [
         f"augsig_{i}" for i in range(250+1)
     ]
-
+    lig = None
     if args.model == 'big':
         tokenizer = BigBirdTokenizer.from_pretrained("google/bigbird-roberta-base")
         model = BigBirdForMaskedLM.from_pretrained("google/bigbird-roberta-base")
@@ -150,6 +150,7 @@ if __name__ == '__main__':
         num_added_tokens = tokenizer.add_tokens(custom_tokens)
         model.resize_token_embeddings(len(tokenizer))
         model_hidden_size = model.config.hidden_size
+        lig = LayerIntegratedGradients(forward_func, model.bigbird.embeddings)
     
     if args.model =='clin_bird':
         model = AutoModelForMaskedLM.from_pretrained("yikuan8/Clinical-BigBird").to(device)
@@ -158,6 +159,8 @@ if __name__ == '__main__':
         tokenizer.add_tokens(custom_tokens)
         model.resize_token_embeddings(len(tokenizer))
         model_hidden_size = model.config.hidden_size
+        lig = LayerIntegratedGradients(forward_func, model.bigbird.embeddings)
+
         
     if args.model =='clin_long':
         model = AutoModelForMaskedLM.from_pretrained("yikuan8/Clinical-Longformer").to(device)
@@ -165,20 +168,21 @@ if __name__ == '__main__':
         tokenizer.add_tokens(custom_tokens)
         model.resize_token_embeddings(len(tokenizer))
         model_hidden_size = model.config.hidden_size
+        lig = LayerIntegratedGradients(forward_func, model.longformer.embeddings)
     if args.model == 'long':
         model = LongformerForMaskedLM.from_pretrained("allenai/longformer-base-4096").to(device)
         tokenizer = LongformerTokenizer.from_pretrained("allenai/longformer-base-4096")
         tokenizer.add_tokens(custom_tokens)
         model.resize_token_embeddings(len(tokenizer))
         model_hidden_size = model.config.hidden_size
-        
+        lig = LayerIntegratedGradients(forward_func, model.longformer.embeddings)
     if args.pre:
         checkpoint = torch.load(f'./runs/checkpoint/{args.checkpoint}/best_checkpoint.chkpt', map_location = device_name)    
         model.load_state_dict(checkpoint['model'])
     model.to(device)
     model.eval()
     model.zero_grad()
-    lig = LayerIntegratedGradients(forward_func, model.longformer.embeddings)
+    # lig = LayerIntegratedGradients(forward_func, model.longformer.embeddings)
     
     mask_token =  tokenizer.cls_token
     cls_token =  tokenizer.mask_token
