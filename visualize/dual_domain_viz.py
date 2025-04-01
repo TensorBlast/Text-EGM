@@ -456,6 +456,14 @@ def main():
         tokenizer = LongformerTokenizer.from_pretrained("allenai/longformer-base-4096")
         time_config = LongformerConfig()
         freq_config = LongformerConfig()
+        
+        # Set higher max position embeddings to match training configuration
+        time_config.max_position_embeddings = 8192
+        freq_config.max_position_embeddings = 8192
+        
+        # Also set attention window size appropriately
+        time_config.attention_window = [512] * time_config.num_hidden_layers
+        freq_config.attention_window = [512] * freq_config.num_hidden_layers
     else:
         raise ValueError(f"Unsupported model type: {args.model}")
     
