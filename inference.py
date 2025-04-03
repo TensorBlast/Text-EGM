@@ -32,6 +32,7 @@ def get_args():
     parser.add_argument('--inference', action='store_true', help = 'Please choose whether it is inference or not')
     parser.add_argument('--save_visualizations', action='store_true', help = 'Save visualizations of model predictions')
     parser.add_argument('--num_vis_samples', type=int, default=5, help='Number of samples to visualize')
+    parser.add_argument('--pretrained_embeddings', type=str, default=None, help='Path to pretrained embeddings file')
     return parser.parse_args()
 
 def create_toy(dataset, spec_ind):
@@ -171,11 +172,31 @@ if __name__ == '__main__':
         tokenizer.add_tokens(custom_tokens)
         model.resize_token_embeddings(len(tokenizer))
         model_hidden_size = model.config.hidden_size
-        
-    if args.model == 'ablation':
-        model = TorchECGWrapper(in_channels=1, num_classes=2, dropout=0.2).to(device)
-        tokenizer = None  # No tokenizer needed
-        
+    
+
+    # Load pretrained embeddings if provided
+    if args.pretrained_embeddings is not None:
+        try:
+            print(f"Loading pretrained embeddings from {args.pretrained_embeddings}")
+            # Load the pretrained embeddings
+            pretrained_embeds = torch.load(args.pretrained_embeddings, map_location=device)
+            
+            # For transformer models with direct embedding layers
+            if args.model in ['big', 'raw_big', 'clin_bird', 'long', 'raw_long', 'clin_long']:
+                embedding_layer = model.get_input_embeddings()
+                # Load the weights for the embedding layer
+                embedding_layer.load_state_dict(pretrained_embeds)
+                print("Pretrained embeddings loaded successfully")
+            
+            # For TS models
+            elif args.model in ['big_ts', 'long_ts']:
+                embedding_layer = model.model.get_input_embeddings()
+                # Load the weights for the embedding layer
+                embedding_layer.load_state_dict(pretrained_embeds)
+                print("Pretrained embeddings loaded successfully")
+                
+        except Exception as e:
+            print(f"Error loading pretrained embeddings: {e}")
         
     print('Creating Dataset and DataLoader...')
     
@@ -183,8 +204,6 @@ if __name__ == '__main__':
         test_dataset = EGMIMGDataset(test, tokenizer, args= args)
     elif args.model == 'big_ts' or args.model == 'long_ts':
         test_dataset = EGMTSDataset(test, args = args)    
-    elif args.model == 'ablation':
-        test_dataset = EGMTSDataset(test, args = args)
     else:
         test_dataset = EGMDataset(test, tokenizer, args = args)
         

@@ -38,6 +38,8 @@ def get_args():
     parser.add_argument('--toy', default=False, action=argparse.BooleanOptionalAction, help = 'Please choose whether to use a toy dataset or not')
     parser.add_argument('--inference', default=False, action=argparse.BooleanOptionalAction, help = 'Please choose whether it is inference or not')
     parser.add_argument('--dry-run', default=False, action=argparse.BooleanOptionalAction, help = 'Use only 10% of data for quick testing')
+    parser.add_argument('--pretrained_embeddings', type=str, default=None, help='Path to pretrained embeddings file')
+    parser.add_argument('--freeze_embeddings', default=False, action=argparse.BooleanOptionalAction, help='Freeze pretrained embeddings during training')
     return parser.parse_args()
     
     
@@ -72,7 +74,7 @@ def ensure_directory_exists(directory_path):
 
 def main():
     args = get_args()
-    directory_path = f'./runs/checkpoint/saved_best_{args.lr}_{args.batch}_{args.patience}_{args.weight_decay}_{args.model}_{args.use_ce}_{args.mask}_{args.mlm_weight}_{args.ce_weight}_{args.toy}_{args.TS}_{args.TA}_{args.LF}{"_dry-run" if args.dry_run else ""}'
+    directory_path = f'./runs/checkpoint/saved_best_{args.lr}_{args.batch}_{args.patience}_{args.weight_decay}_{args.model}_{args.use_ce}_{args.mask}_{args.mlm_weight}_{args.ce_weight}_{args.toy}_{args.TS}_{args.TA}_{args.LF}{"_pretrained_emb" if args.pretrained_embeddings else ""}{"_frozen_emb" if args.freeze_embeddings else ""}{"_dry-run" if args.dry_run else ""}'
     ensure_directory_exists(directory_path)
 
     gc.collect()
@@ -194,16 +196,44 @@ def main():
         tokenizer.add_tokens(custom_tokens)
         model.resize_token_embeddings(len(tokenizer))
         model_hidden_size = model.config.hidden_size
-    
-    if args.model == 'ablation':
-        model = TorchECGWrapper(in_channels=1, num_classes=2, dropout=0.2).to(device)
-        model_hidden_size = 512  # Match the hidden size of ECG_CRNN
-        tokenizer = None  # No tokenizer needed for this model
+
+    # Load pretrained embeddings if provided
+    if args.pretrained_embeddings is not None:
+        try:
+            print(f"Loading pretrained embeddings from {args.pretrained_embeddings}")
+            # Load the pretrained embeddings
+            pretrained_embeds = torch.load(args.pretrained_embeddings, map_location=device)
+            
+            # For transformer models with direct embedding layers
+            if args.model in ['big', 'raw_big', 'clin_bird', 'long', 'raw_long', 'clin_long']:
+                embedding_layer = model.get_input_embeddings()
+                # Load the weights for the embedding layer
+                embedding_layer.load_state_dict(pretrained_embeds)
+                
+                # Freeze embeddings if specified
+                if args.freeze_embeddings:
+                    print("Freezing embedding layer")
+                    embedding_layer.weight.requires_grad = False
+                else:
+                    print("Embeddings will be fine-tuned")
+            
+            # For TS models
+            elif args.model in ['big_ts', 'long_ts']:
+                embedding_layer = model.model.get_input_embeddings()
+                # Load the weights for the embedding layer
+                embedding_layer.load_state_dict(pretrained_embeds)
+                
+                # Freeze embeddings if specified
+                if args.freeze_embeddings:
+                    print("Freezing embedding layer")
+                    embedding_layer.weight.requires_grad = False
+                else:
+                    print("Embeddings will be fine-tuned")
+            
+            print("Pretrained embeddings loaded successfully")
+        except Exception as e:
+            print(f"Error loading pretrained embeddings: {e}")
         
-        # Use the EGMTSDataset which already handles raw signals correctly
-        
-        
-    
     print('Creating Dataset and DataLoader...')
     if args.model == 'vit':
         train_dataset = EGMIMGDataset(train, tokenizer, args = args)        
@@ -211,9 +241,6 @@ def main():
     elif args.model == 'big_ts' or args.model == 'long_ts':
         train_dataset = EGMTSDataset(train, args = args)        
         val_dataset = EGMTSDataset(val, args = args)
-    elif args.model == 'ablation':
-        train_dataset = EGMTSDataset(train, args=args)
-        val_dataset = EGMTSDataset(val, args=args)
     else:
         train_dataset = EGMDataset(train, tokenizer, args = args)        
         val_dataset = EGMDataset(val, tokenizer, args = args)

@@ -14,14 +14,7 @@ def trainer(model, train_dataloader, optimizer, device, args, ce = None):
     for batch in tqdm(train_dataloader, desc = 'Training... '):
         optimizer.zero_grad()
         
-        if args.model == 'ablation':
-            batch_data, tokenized_sample, afib_label, mask, batch_attention_mask = batch
-            
-            batch_data, afib_label = tokenized_sample.to(device), afib_label.to(device)
-            
-            logits, loss = model(batch_data, afib_label)
-            loss = torch.mean(loss)
-        elif args.model == 'vit':
+        if args.model == 'vit':
             batch_data, mask, afib_label = batch
             batch_data, mask, afib_label = batch_data.to(device), mask.to(device), afib_label.to(device)
             logits, loss = model(batch_data, afib_label, mask=mask)
@@ -74,52 +67,8 @@ def validate(model, val_dataloader, device, args, ce = None):
     with torch.no_grad():
         for batch_idx, batch in enumerate(tqdm(val_dataloader, desc = 'Validating... ')):
             
-            if args.model == 'ablation':
-                batch_data, tokenized_sample, afib_label, mask, batch_attention_mask = batch
                 
-                # Debug: Check for NaNs in input
-                if torch.isnan(batch_data).any():
-                    print(f"[Batch {batch_idx}] NaN detected in input data")
-                    print(f"Input stats - Min: {batch_data.min().item()}, Max: {batch_data.max().item()}")
-                    continue
-                
-                # Move to device
-                batch_data, afib_label = batch_data.to(device), afib_label.to(device)
-                
-                try:
-                    # Forward pass
-                    logits, loss = model(batch_data, afib_label)
-                    
-                    # Debug: Check for NaNs in logits
-                    if torch.isnan(logits).any():
-                        print(f"[Batch {batch_idx}] NaN detected in logits")
-                        print(f"Logits shape: {logits.shape}")
-                        print(f"Logits sample: {logits[0][:5]}")
-                        continue
-                    
-                    # Debug: Check for NaNs in loss
-                    if torch.isnan(loss):
-                        print(f"[Batch {batch_idx}] NaN detected in loss")
-                        print(f"Logits stats - Min: {logits.min().item()}, Max: {logits.max().item()}")
-                        print(f"Label distribution: {afib_label}")
-                        nan_count += 1
-                        continue
-                    
-                    loss = torch.mean(loss)
-                    
-                    # One more NaN check after mean
-                    if torch.isnan(loss):
-                        print(f"[Batch {batch_idx}] NaN detected after loss.mean()")
-                        continue
-                        
-                    total_loss += loss.item()
-                    len_of_batch += 1
-                    
-                except Exception as e:
-                    print(f"[Batch {batch_idx}] Exception: {str(e)}")
-                    continue
-                
-            elif args.model == 'vit':
+            if args.model == 'vit':
                 batch_data, mask, tokenized_sample = batch
                 batch_data, mask, tokenized_sample = batch_data.to(device), mask.to(device), tokenized_sample.to(device)
                 logits, loss = model(batch_data, tokenized_sample, mask=mask)
@@ -225,28 +174,8 @@ def inference(model, tokenizer, test_dataloader, device, args):
     
     with torch.no_grad():
         for batch in tqdm(test_dataloader, desc='Inference...'):
-            
-            if args.model == 'ablation':
-                batch_data, tokenized_sample, afib_label, mask, batch_attention_mask = batch
-                # print(f"Batch_data: {batch_data}")
-                # print(f"Tokenized_sample: {tokenized_sample}")
-                # print(f"Afib_label: {afib_label}")
-                # print(f"Mask: {mask}")
-                # print(f"Batch_attention_mask: {batch_attention_mask}")
-                # exit()
-                batch_data, afib_label = batch_data.to(device), afib_label.to(device)
-                
-                logits, _ = model(batch_data)
-                preds = torch.argmax(logits, dim=-1)
-                
-                for i in range(preds.shape[0]):
-                    pred = preds[i]
-                    pred_afib.append(pred.detach().cpu().numpy())
-                    ground_truth_afib.append(afib_label[i].detach().cpu().numpy())
-                    mean_acc_afib = accuracy_score([pred.detach().cpu().numpy()], [afib_label[i].detach().cpu().numpy()])
-                    mean_accuracies_afib.append(mean_acc_afib)
                     
-            elif args.model == 'vit':
+            if args.model == 'vit':
                 batch_data, mask, tokenized_sample = batch
                 batch_data, mask, tokenized_sample = batch_data.to(device), mask.to(device), tokenized_sample.to(device)
                 logits, loss = model(batch_data, tokenized_sample, mask=mask)
@@ -362,7 +291,7 @@ def inference(model, tokenizer, test_dataloader, device, args):
 
             count_index +=1
             
-    if args.model == 'vit' or args.model == 'big_ts' or args.model == 'long_ts' or args.model == 'ablation':
+    if args.model == 'vit' or args.model == 'big_ts' or args.model == 'long_ts':
         print("Average Accuracy for Afib:", np.mean(mean_accuracies_afib))
     else:
         print('MSE for Signal Interpolation', np.mean(MSEs_signals))
