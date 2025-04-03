@@ -113,7 +113,7 @@ def main():
     
     if args.toy:
         train = create_toy(train, [0, 1])
-        val = create_toy(val, [14])
+        val = create_toy(val, [27])
     
     if args.dry_run:
         print('Dry run mode: using only 10% of the data')

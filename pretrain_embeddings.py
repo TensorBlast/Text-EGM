@@ -21,7 +21,13 @@ class EmbeddingPretrainingModel(nn.Module):
     def __init__(self, base_model, hidden_size):
         super().__init__()
         self.embedding = base_model.get_input_embeddings()
-        self.projection = nn.Linear(hidden_size, hidden_size)
+        
+        # Non-linear projection head for better representation learning
+        self.projection = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size)
+        )
         self.hidden_size = hidden_size
         
     def forward(self, input_ids, positive_ids=None):
@@ -41,22 +47,25 @@ class EmbeddingPretrainingModel(nn.Module):
             # Compute similarity matrix
             similarity = torch.bmm(projected_norm, positive_projected_norm.transpose(1, 2))
             
-            return embeddings, similarity
+            return embeddings, similarity, projected_norm, positive_projected_norm
         
         return embeddings
 
 def get_args():
     parser = argparse.ArgumentParser(description="Pretrain embeddings for ECG signals")
-    parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
+    parser.add_argument('--lr', type=float, default=5e-4, help='Learning rate')
     parser.add_argument('--signal_size', type=int, default=250, help='Signal size')
     parser.add_argument('--device', type=str, default='cuda', help='Device (cuda/cpu)')
     parser.add_argument('--warmup', type=int, default=2000, help='Warmup steps')
     parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
     parser.add_argument('--batch', type=int, default=16, help='Batch size')
     parser.add_argument('--weight_decay', type=float, default=1e-2, help='Weight decay')
+    parser.add_argument('--mask', type=float, default=0.4, help='Masking ratio')
     parser.add_argument('--model', type=str, default='big', help='Model type (big, long, etc.)')
     parser.add_argument('--patience', type=int, default=5, help='Patience for early stopping')
     parser.add_argument('--temperature', type=float, default=0.1, help='Temperature for contrastive loss')
+    parser.add_argument('--hard_negatives', default=True, action=argparse.BooleanOptionalAction, help='Use hard negative mining')
+    parser.add_argument('--neg_threshold', type=float, default=0.5, help='Threshold for hard negative mining')
     parser.add_argument('--toy', default=False, action=argparse.BooleanOptionalAction, help='Use toy dataset')
     parser.add_argument('--dry-run', default=False, action=argparse.BooleanOptionalAction, help='Use small subset for testing')
     parser.add_argument('--output_dir', type=str, default='./pretrained_embeddings', help='Output directory')
@@ -67,6 +76,7 @@ def get_args():
 
 def create_toy(dataset, spec_ind):
     toy_dataset = {}
+    
     for i in dataset.keys():
         _, placement, _, _ = i
         if placement in spec_ind:
@@ -90,9 +100,25 @@ def ensure_directory_exists(directory_path):
     else:
         print(f"Directory already exists: {directory_path}")
 
-def contrastive_loss(similarity, temperature=0.1):
+def hard_negative_mining(similarity, neg_threshold=0.5):
+    """
+    Identifies hard negatives in the similarity matrix
+    Hard negatives are negatives (off-diagonal) that have high similarity
+    """
+    batch_size, seq_len, _ = similarity.size()
+    
+    # Create a mask for positive pairs (diagonal)
+    diagonal_mask = torch.eye(seq_len, device=similarity.device).unsqueeze(0).expand(batch_size, -1, -1)
+    
+    # Create a mask for hard negative pairs (high similarity but not positive)
+    hard_negative_mask = (similarity > neg_threshold) & (~diagonal_mask.bool())
+    
+    return hard_negative_mask
+
+def contrastive_loss(similarity, temperature=0.1, hard_negatives=False, neg_threshold=0.5):
     """
     Computes contrastive loss (InfoNCE) for the similarity matrix
+    With optional hard negative mining
     """
     batch_size, seq_len, _ = similarity.size()
     
@@ -102,8 +128,23 @@ def contrastive_loss(similarity, temperature=0.1):
     # Scale logits by temperature
     logits = similarity / temperature
     
+    # Apply hard negative mining if enabled
+    if hard_negatives:
+        # Find hard negatives (high similarity but not positive pairs)
+        hard_negative_mask = hard_negative_mining(similarity, neg_threshold)
+        
+        # Apply higher weights to hard negatives
+        hard_negative_weight = 3.0  # Weight for hard negatives
+        hard_negative_logits = logits.clone()
+        hard_negative_logits[hard_negative_mask] *= hard_negative_weight
+        
+        # Use weighted logits
+        weighted_logits = hard_negative_logits
+    else:
+        weighted_logits = logits
+    
     # Compute cross entropy loss
-    loss = nn.CrossEntropyLoss()(logits.view(-1, seq_len), labels.view(-1))
+    loss = nn.CrossEntropyLoss()(weighted_logits.view(-1, seq_len), labels.view(-1))
     
     return loss
 
@@ -117,10 +158,15 @@ def train_embeddings(model, train_loader, optimizer, device, args):
         all_tokens = all_tokens.to(device)
         
         # Forward pass
-        _, similarity = model(masked_sample, all_tokens)
+        _, similarity, _, _ = model(masked_sample, all_tokens)
         
-        # Compute loss - contrastive learning objective
-        loss = contrastive_loss(similarity, args.temperature)
+        # Compute loss - contrastive learning objective with hard negative mining
+        loss = contrastive_loss(
+            similarity, 
+            args.temperature, 
+            args.hard_negatives, 
+            args.neg_threshold
+        )
         
         # Backward and optimize
         optimizer.zero_grad()
@@ -145,14 +191,83 @@ def validate_embeddings(model, val_loader, device, args):
             all_tokens = all_tokens.to(device)
             
             # Forward pass
-            _, similarity = model(masked_sample, all_tokens)
+            _, similarity, _, _ = model(masked_sample, all_tokens)
             
             # Compute loss
-            loss = contrastive_loss(similarity, args.temperature)
+            loss = contrastive_loss(
+                similarity, 
+                args.temperature, 
+                args.hard_negatives, 
+                args.neg_threshold
+            )
             
             total_loss += loss.item()
     
     return total_loss / len(val_loader)
+
+def visualize_embeddings(model, val_loader, device, epoch, output_dir):
+    """
+    Visualize the learned embeddings using t-SNE
+    """
+    model.eval()
+    all_embeddings = []
+    all_labels = []
+    
+    # Only process a subset for visualization
+    max_samples = 100
+    sample_count = 0
+    
+    with torch.no_grad():
+        for batch_idx, (masked_sample, all_tokens, concatenated_sample, *rest) in enumerate(val_loader):
+            if sample_count >= max_samples:
+                break
+                
+            # Move data to device
+            masked_sample = masked_sample.to(device)
+            
+            # Get embeddings (not projections)
+            embeddings = model.embedding(masked_sample)
+            
+            # Take mean embedding for each sequence
+            mean_embeddings = embeddings.mean(dim=1)
+            
+            # Get labels (last element of concatenated_sample is afib label)
+            labels = concatenated_sample[:, -1].numpy()
+            
+            all_embeddings.append(mean_embeddings.cpu().numpy())
+            all_labels.extend(labels)
+            
+            sample_count += masked_sample.size(0)
+    
+    if sample_count > 0:
+        # Convert to numpy arrays
+        all_embeddings = np.vstack(all_embeddings)
+        all_labels = np.array(all_labels)
+        
+        try:
+            # Only import t-SNE if we're using it
+            from sklearn.manifold import TSNE
+            
+            # Apply t-SNE
+            tsne = TSNE(n_components=2, random_state=42)
+            embeddings_2d = tsne.fit_transform(all_embeddings)
+            
+            # Plot
+            plt.figure(figsize=(10, 8))
+            for label in np.unique(all_labels):
+                idx = all_labels == label
+                plt.scatter(embeddings_2d[idx, 0], embeddings_2d[idx, 1], label=f'Label {int(label)}')
+            
+            plt.title(f'Embedding Visualization (Epoch {epoch})')
+            plt.legend()
+            plt.savefig(f"{output_dir}/embedding_viz_epoch_{epoch}.png")
+            plt.close()
+            
+            print(f"Embedding visualization saved for epoch {epoch}")
+        except ImportError:
+            print("scikit-learn not available, skipping embedding visualization")
+        except Exception as e:
+            print(f"Error in embedding visualization: {e}")
 
 def main():
     args = get_args()
@@ -182,6 +297,18 @@ def main():
     
     print(f"Using device: {device}")
     
+    # Log training configuration
+    print("\nTraining configuration:")
+    print(f"  Model: {args.model}")
+    print(f"  Temperature: {args.temperature}")
+    print(f"  Hard negative mining: {args.hard_negatives}")
+    if args.hard_negatives:
+        print(f"  Negative threshold: {args.neg_threshold}")
+    print(f"  Learning rate: {args.lr}")
+    print(f"  Batch size: {args.batch}")
+    print(f"  Masking ratio: {args.mask}")
+    print("\n")
+    
     # Load data
     print("Loading data...")
     train_data = np.load('../data/train_intra.npy', allow_pickle=True).item()
@@ -189,7 +316,7 @@ def main():
     
     if args.toy:
         train_data = create_toy(train_data, [0, 1])
-        val_data = create_toy(val_data, [14])
+        val_data = create_toy(val_data, [27])
     
     if args.dry_run:
         print('Dry run mode: using only 10% of the data')
@@ -263,6 +390,7 @@ def main():
     train_losses = []
     val_losses = []
     all_epochs = []
+
     
     for epoch in range(args.epochs):
         all_epochs.append(epoch)
@@ -276,6 +404,13 @@ def main():
         val_loss = validate_embeddings(model, val_loader, device, args)
         print(f"Epoch {epoch+1}/{args.epochs}, Val Loss: {val_loss:.4f}")
         val_losses.append(val_loss)
+        
+        # Visualize embeddings every 5 epochs
+        if epoch % 5 == 0 or epoch == args.epochs - 1:
+            try:
+                visualize_embeddings(model, val_loader, device, epoch, output_dir)
+            except Exception as e:
+                print(f"Error in embedding visualization: {e}")
         
         # Save model if it's the best so far
         if val_loss <= min(val_losses):

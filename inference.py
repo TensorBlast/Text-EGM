@@ -86,7 +86,7 @@ if __name__ == '__main__':
     test = np.load('../data/test_intra.npy', allow_pickle = True).item()
     
     if args.toy:
-        test = create_toy(test, [18])
+        test = create_toy(test, [22])
 
     print('Creating Custom Tokens')
     custom_tokens = [
