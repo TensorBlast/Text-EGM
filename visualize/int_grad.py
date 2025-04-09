@@ -81,12 +81,13 @@ if __name__ == '__main__':
     # test = np.load(f'../data/manip_arrs.npy', allow_pickle=True).item()
     ###
     
-    norm_keys_list = list(norm_test.keys())
-    afib_keys_list = list(afib_test.keys())
+    # norm_keys_list = list(norm_test.keys())
+    # afib_keys_list = list(afib_test.keys())
     
-    norm_keys_list = norm_keys_list[:50]
-    afib_keys_list = afib_keys_list[:50]
-    keys_list = norm_keys_list + afib_keys_list
+    # norm_keys_list = norm_keys_list[:50]
+    # afib_keys_list = afib_keys_list[:50]
+    # keys_list = norm_keys_list + afib_keys_list
+    keys_list = list(test.keys())[:20]
     
     ###
     # keys_list = list(test.keys())
