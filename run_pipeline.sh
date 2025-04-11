@@ -11,7 +11,8 @@ set -e
 # --- Configuration ---
 REPO_URL="https://github.com/TensorBlast/Text-EGM.git"
 REPO_DIR="Text-EGM" # The directory name created by git clone
-LOG_DIR="run_logs"
+SCRIPT_DIR="$(pwd)" # Save the directory where the script is executed
+LOG_DIR="${SCRIPT_DIR}/run_logs" # Make LOG_DIR an absolute path
 PRETRAINED_EMB_DIR="pretrained_embeddings"
 CHECKPOINT_BASE_DIR="runs/checkpoint"
 GCP_HOSTNAME="gcp-egm-runner" # Hostname for Tailscale
@@ -154,8 +155,8 @@ start_int_grad_scp() {
     ssh -o BatchMode=yes -o StrictHostKeyChecking=no "${MAC_USER}@${MAC_HOST}" "mkdir -p '${LOCAL_DEST_BASE_DIR}/int_grad_outputs/${ckpt_basename}'" >> "$scp_log_file" 2>&1 || echo "Warning: mkdir -p on remote might have failed (possibly dir exists)" >> "$scp_log_file"
 
     # Use find to copy only specific file types, avoids copying the large checkpoint file again
-    find "$source_checkpoint_dir" -maxdepth 1 \\( -name '*.png' -o -name '*.npy' \\) -exec \
-        scp -o BatchMode=yes -o StrictHostKeyChecking=no {} "$final_dest_path" >> "$scp_log_file" 2>&1 \\; &
+    find "$source_checkpoint_dir" -maxdepth 1 \( -name '*.png' -o -name '*.npy' \) -exec \
+        scp -o BatchMode=yes -o StrictHostKeyChecking=no {} "$final_dest_path" >> "$scp_log_file" 2>&1 \; &
 
     echo $! # Return the PID of the background find/scp process
 }
@@ -171,6 +172,8 @@ fi
 echo "Target Mac: ${MAC_USER}@${MAC_HOST}"
 echo "Destination Base Directory: ${LOCAL_DEST_BASE_DIR}"
 echo "=================================================="
+
+# Create log directory early with absolute path
 mkdir -p "$LOG_DIR" # Ensure log directory exists early
 date > "$LOG_DIR/00_start_time.log"
 
