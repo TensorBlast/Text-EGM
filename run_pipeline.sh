@@ -182,7 +182,7 @@ echo "[Step 2/16] Cloning Repository and Installing Requirements..." | tee "$LOG
 if [ -d "$REPO_DIR" ]; then
     echo "Repository directory '$REPO_DIR' already exists. Skipping clone." | tee -a "$LOG_DIR/02_setup.log"
 else
-    log_exec "$LOG_DIR/02_setup.log" git clone "$REPO_URL"
+    log_exec "$LOG_DIR/02_setup.log" git clone -b dev "$REPO_URL"
 fi
 cd "$REPO_DIR"
 # Ensure we are in the correct directory
