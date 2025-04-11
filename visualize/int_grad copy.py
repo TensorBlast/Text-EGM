@@ -22,59 +22,25 @@ def get_args():
     parser.add_argument('--TS', action='store_true', default = None, help = 'Please choose if Token Substitution')
     parser.add_argument('--LF', action='store_true', default = None, help = 'Please choose if Label Flipping')
     parser.add_argument('--CF', action='store_true', default = None, help = 'Implement Counterfactuals')
-    # Changed to Add to arguments
-    parser.add_argument('--n_steps', type=int, default=50, help='Number of steps for integrated gradients')
     return parser.parse_args()
 
-##changed to handle IndexError: index 251 is out of bounds for axis 0 with size 250
 def plot_attributions(signal, attributions, key, mask, args):
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(signal, label='Signal')
-    
-    # Get masked indices and filter those that are within signal bounds
     masked_indices = np.where(mask == 0)[0]
-    valid_masked_indices = [i for i in masked_indices if i < len(signal)]
-    
-    # Only use valid indices for scatter plot
-    if valid_masked_indices:
-        ax.scatter(valid_masked_indices, 
-                  [signal[i] for i in valid_masked_indices], 
-                  color='black', zorder=2, label='Masked Tokens', s=15, alpha=1)
+    ax.scatter(masked_indices, [signal[i] for i in masked_indices], color='black', zorder=2, label='Masked Tokens', s = 15, alpha=1)
     
     ax2 = ax.twinx()
-    # Truncate attribution scores to match signal length
-    attribution_display = attributions[:len(signal)]
-    ax2.fill_between(range(len(attribution_display)), 0, attribution_display, 
-                     color='red', alpha=0.3, label='Attribution Score')
+    # Assuming attributions is a list of attribution scores
+    ax2.fill_between(range(len(attributions)), 0, attributions, color='red', alpha=0.3, label='Attribution Score')
     ax2.set_ylim(0, 0.2) 
+
     
     ax.set_xlabel('Sequence Length', fontsize='large', fontweight='bold')
     ax.set_ylabel('Signal Amplitude', fontsize='large', fontweight='bold')
     ax2.set_ylabel('Attribution Score', fontsize='large', fontweight='bold')
 
-    # Combine handles and labels from both axes for a single legend
-    handles1, labels1 = ax.get_legend_handles_labels()
-    handles2, labels2 = ax2.get_legend_handles_labels()
-    fig.legend(handles1 + handles2, labels1 + labels2, loc='upper right')
-
     plt.savefig(f'./runs/checkpoint/{args.checkpoint}/attribution_score_{key}_{args.pre}_{args.afibmask}_{args.TS}_{args.TA}_{args.LF}_{args.CF}.png')
-# def plot_attributions(signal, attributions, key, mask, args):
-#     fig, ax = plt.subplots(figsize=(10, 4))
-#     ax.plot(signal, label='Signal')
-#     masked_indices = np.where(mask == 0)[0]
-#     ax.scatter(masked_indices, [signal[i] for i in masked_indices], color='black', zorder=2, label='Masked Tokens', s = 15, alpha=1)
-    
-#     ax2 = ax.twinx()
-#     # Assuming attributions is a list of attribution scores
-#     ax2.fill_between(range(len(attributions)), 0, attributions, color='red', alpha=0.3, label='Attribution Score')
-#     ax2.set_ylim(0, 0.2) 
-
-    
-#     ax.set_xlabel('Sequence Length', fontsize='large', fontweight='bold')
-#     ax.set_ylabel('Signal Amplitude', fontsize='large', fontweight='bold')
-#     ax2.set_ylabel('Attribution Score', fontsize='large', fontweight='bold')
-
-#     plt.savefig(f'./runs/checkpoint/{args.checkpoint}/attribution_score_{key}_{args.pre}_{args.afibmask}_{args.TS}_{args.TA}_{args.LF}_{args.CF}.png')
 
 
 def label_flip(afib_label):
@@ -121,7 +87,7 @@ if __name__ == '__main__':
     # norm_keys_list = norm_keys_list[:50]
     # afib_keys_list = afib_keys_list[:50]
     # keys_list = norm_keys_list + afib_keys_list
-    keys_list = list(test.keys())[:10]
+    keys_list = list(test.keys())[:20]
     
     ###
     # keys_list = list(test.keys())
@@ -185,7 +151,7 @@ if __name__ == '__main__':
         num_added_tokens = tokenizer.add_tokens(custom_tokens)
         model.resize_token_embeddings(len(tokenizer))
         model_hidden_size = model.config.hidden_size
-        lig = LayerIntegratedGradients(forward_func, model.bert.embeddings) ## Changed this from bigbird to bert
+        lig = LayerIntegratedGradients(forward_func, model.bigbird.embeddings)
     
     if args.model =='clin_bird':
         model = AutoModelForMaskedLM.from_pretrained("yikuan8/Clinical-BigBird").to(device)
@@ -236,7 +202,7 @@ if __name__ == '__main__':
     for i in range(len(keys_list)):
         
         seq = test[keys_list[i]]
-        signal = seq[:250] ## Changed this from 1000 to 250
+        signal = seq[:1000]
         if args.TS and args.CF: 
             signal = moving_average(signal)
         key = keys_list[i]
@@ -275,7 +241,7 @@ if __name__ == '__main__':
         mask = np.ones_like(all_tokens)
         
         if args.afibmask == None:
-            mask_indices_signal = np.random.choice(len(quantized_signal_ids), int(0.2 * len(quantized_signal_ids)), replace=False) ## Changed this from 0.75 to 0.2
+            mask_indices_signal = np.random.choice(len(quantized_signal_ids), int(0.75 * len(quantized_signal_ids)), replace=False)
             mask[1:len(quantized_signal_ids)+1][mask_indices_signal] = 0
         
         mask[-2] = 0
@@ -307,38 +273,24 @@ if __name__ == '__main__':
                                                 additional_forward_args=(index,),
                                                 baselines=(ref, torch.zeros_like(attention_in)),
                                                 return_convergence_delta=True,
-                                                internal_batch_size = 32, ## changed this from 4 to 32
-                                                n_steps=args.n_steps)  ## changed to add the num of steps
+                                                internal_batch_size = 4)
             # Sum across embedding dimensions and take absolute value
             summed_attributions = attributions.sum(dim=-1).squeeze(0).abs()
             all_attributions.append(summed_attributions.detach().cpu())
             
         aggregated_attributions = torch.zeros_like(input_ids[0], dtype=torch.float).detach().cpu()
         for attributions in all_attributions:
-            # Changed these 2 lines to handle RuntimeError: The size of tensor a (254) must match the size of tensor b (512) at non-singleton dimension 0
-            # Make sure attributions fit within aggregated_attributions
-            attr_length = min(attributions.shape[0], aggregated_attributions.shape[0])
-            aggregated_attributions[:attr_length] += attributions[:attr_length]
-            # attributions = attributions[:1004 + len_sampled_quantized_augsignal_ids]
-            # aggregated_attributions += attributions
+            attributions = attributions[:1004 + len_sampled_quantized_augsignal_ids]
+            aggregated_attributions += attributions
             
         normalized_attributions = aggregated_attributions / aggregated_attributions.max()
         tokens = [int(i) for i in input_ids[0]]
-        ## Changed this to handle IndexError: index 1000 is out of bounds for axis 0 with size 254
-        if len(mask) > 1000:
-            mask[1000] = 0  # Only set if the index exists
-        #mask[1000] = 0
+        mask[1000] = 0
+        plot_attributions(signal, normalized_attributions.tolist(), key, mask[1:1001 + len_sampled_quantized_augsignal_ids], args)
         
-        ##changed to handle IndexError: index 251 is out of bounds for axis 0 with size 250
-        mask_for_plot = mask[0:min(len(mask), len(signal))]
-        plot_attributions(signal, normalized_attributions[:len(signal)].tolist(), key, mask_for_plot, args)
-        
-        # plot_attributions(signal, normalized_attributions.tolist(), key, mask[1:1001 + len_sampled_quantized_augsignal_ids], args)
-        
-        ## Changed this to handle IndexError: index 1000 is out of bounds for axis 0 with size 254
         np_dic[key] = {
-            'signal': signal,
-            'attr': normalized_attributions[:len(signal)].tolist(),  # Match signal length
-            'mask': mask[1:min(len(signal) + 1 + len_sampled_quantized_augsignal_ids, len(mask))]  # Safe indexing
+            'signal' :signal,
+            'attr' : normalized_attributions.tolist(),
+            'mask' : mask[1:1001 + len_sampled_quantized_augsignal_ids]
         }
     np.save(f'./runs/checkpoint/{args.checkpoint}/att_dic_{args.pre}_{args.afibmask}_{args.TS}_{args.TA}_{args.LF}_{args.CF}.npy', np_dic)
