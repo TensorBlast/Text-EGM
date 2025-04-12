@@ -51,6 +51,9 @@ echo "Using training batch size: $TRAIN_BATCH_SIZE"
 echo "Using inference batch size: $INFER_BATCH_SIZE"
 echo "Resuming from step: $RESUME_FROM"
 
+# Total number of steps in the pipeline - define this early
+TOTAL_STEPS=18 # Update this if steps are added or removed
+
 # Detect if running in Docker container
 IN_DOCKER=false
 if [ -f /.dockerenv ] || grep -q docker /proc/1/cgroup 2>/dev/null; then
@@ -403,11 +406,23 @@ send_with_runpodctl() {
     return 0  # Always return success to prevent script termination
 }
 
+# Function to sanitize paths by removing problematic characters
+sanitize_path() {
+    local path="$1"
+    # Remove carriage returns, tabs, and other control characters
+    # First, normalize double slashes
+    path=$(echo "$path" | sed 's|//|/|g')
+    # Then remove carriage returns and other control characters
+    path=$(echo "$path" | tr -d '\r\n\t')
+    # Clean up any trailing or leading whitespace
+    path=$(echo "$path" | xargs)
+    echo "$path"
+}
+
 # --- Main Script ---
 
 echo "=================================================="
 echo "Starting Full Text-EGM Pipeline on RunPod Instance"
-TOTAL_STEPS=16 # Update total number of steps
 echo "=================================================="
 
 # Create log and archive directories with absolute paths
@@ -536,6 +551,9 @@ if should_run_step 6; then
     # Extract directory name from the log file
     BIG_DEFAULT_DIR_REL=$(grep -Eo 'Directory (created|already exists): \./[^ ]+' "$LOG_DIR/06_train_big_default.log" | sed -E 's/Directory (created|already exists): \.\///' | tail -1 || echo "NOT_FOUND")
 
+    # Sanitize the path to remove any problematic characters
+    BIG_DEFAULT_DIR_REL=$(sanitize_path "$BIG_DEFAULT_DIR_REL")
+
     if [ "$BIG_DEFAULT_DIR_REL" == "NOT_FOUND" ] || [ -z "$BIG_DEFAULT_DIR_REL" ]; then
         echo "ERROR: Could not determine BigBird default checkpoint directory from training output." | tee -a "$LOG_DIR/06_train_big_default.log"
         # Fallback is still useful if script output format changes unexpectedly
@@ -545,9 +563,28 @@ if should_run_step 6; then
              exit 1
         else
              echo "WARNING: Used fallback to find checkpoint directory: $BIG_DEFAULT_DIR_REL" | tee -a "$LOG_DIR/06_train_big_default.log"
+             # Sanitize the fallback path too
+             BIG_DEFAULT_DIR_REL=$(sanitize_path "$BIG_DEFAULT_DIR_REL")
         fi
     fi
+
+    # Verify the directory exists
+    if [ ! -d "$BIG_DEFAULT_DIR_REL" ]; then
+        echo "ERROR: Checkpoint directory does not exist: $BIG_DEFAULT_DIR_REL" | tee -a "$LOG_DIR/06_train_big_default.log"
+        # Try a more aggressive fallback
+        BIG_DEFAULT_DIR_REL=$(find runs/checkpoint -maxdepth 1 -type d -name "*big*" | grep -v 'pretrained_emb' | sort -r | head -n 1 || echo "NOT_FOUND")
+        if [ "$BIG_DEFAULT_DIR_REL" == "NOT_FOUND" ] || [ -z "$BIG_DEFAULT_DIR_REL" ] || [ ! -d "$BIG_DEFAULT_DIR_REL" ]; then
+            echo "ERROR: Could not find any BigBird default checkpoint directory." | tee -a "$LOG_DIR/06_train_big_default.log"
+            exit 1
+        else
+            echo "WARNING: Using alternative checkpoint directory: $BIG_DEFAULT_DIR_REL" | tee -a "$LOG_DIR/06_train_big_default.log"
+        fi
+    fi
+    
     BIG_DEFAULT_CKPT_NAME=$(basename "$BIG_DEFAULT_DIR_REL")
+    # Sanitize the checkpoint name too
+    BIG_DEFAULT_CKPT_NAME=$(sanitize_path "$BIG_DEFAULT_CKPT_NAME")
+    
     echo "BigBird Default Training finished. Checkpoint directory: $BIG_DEFAULT_DIR_REL (Name: $BIG_DEFAULT_CKPT_NAME)" | tee -a "$LOG_DIR/06_train_big_default.log"
 
     # Delete .npy files after training
@@ -561,7 +598,20 @@ else
         echo "Cannot continue without checkpoint. Please run without --resume-from option first." | tee -a "$LOG_DIR/06_train_big_default.log"
         exit 1
     fi
+    
+    # Sanitize the directory path to remove problematic characters
+    BIG_DEFAULT_DIR_REL=$(sanitize_path "$BIG_DEFAULT_DIR_REL")
+    
+    # Verify the directory exists
+    if [ ! -d "$BIG_DEFAULT_DIR_REL" ]; then
+        echo "ERROR: Checkpoint directory exists but contains problematic characters: $BIG_DEFAULT_DIR_REL" | tee -a "$LOG_DIR/06_train_big_default.log"
+        exit 1
+    fi
+    
     BIG_DEFAULT_CKPT_NAME=$(basename "$BIG_DEFAULT_DIR_REL")
+    # Sanitize the checkpoint name too
+    BIG_DEFAULT_CKPT_NAME=$(sanitize_path "$BIG_DEFAULT_CKPT_NAME")
+    
     echo "Found BigBird Default checkpoint from previous run: $BIG_DEFAULT_DIR_REL (Name: $BIG_DEFAULT_CKPT_NAME)" | tee -a "$LOG_DIR/06_train_big_default.log"
 fi
 
@@ -624,18 +674,40 @@ if should_run_step 9; then
     # Extract directory name from the log file
     BIG_EMBEDDING_DIR_REL=$(grep -Eo 'Directory (created|already exists): \./[^ ]+' "$LOG_DIR/09_train_big_embedding.log" | sed -E 's/Directory (created|already exists): \.\///' | tail -1 || echo "NOT_FOUND")
 
+    # Sanitize the path to remove any problematic characters
+    BIG_EMBEDDING_DIR_REL=$(sanitize_path "$BIG_EMBEDDING_DIR_REL")
+
     if [ "$BIG_EMBEDDING_DIR_REL" == "NOT_FOUND" ] || [ -z "$BIG_EMBEDDING_DIR_REL" ]; then
         echo "ERROR: Could not determine BigBird embedding checkpoint directory from training output." | tee -a "$LOG_DIR/09_train_big_embedding.log"
         # Fallback is still useful
         BIG_EMBEDDING_DIR_REL=$(ls -td runs/checkpoint/saved_best_*_big_*pretrained_emb* | head -n 1 || echo "NOT_FOUND")
-         if [ "$BIG_EMBEDDING_DIR_REL" == "NOT_FOUND" ] || [ -z "$BIG_EMBEDDING_DIR_REL" ]; then
+        if [ "$BIG_EMBEDDING_DIR_REL" == "NOT_FOUND" ] || [ -z "$BIG_EMBEDDING_DIR_REL" ]; then
              echo "ERROR: Fallback directory search also failed." | tee -a "$LOG_DIR/09_train_big_embedding.log"
              exit 1
         else
              echo "WARNING: Used fallback to find checkpoint directory: $BIG_EMBEDDING_DIR_REL" | tee -a "$LOG_DIR/09_train_big_embedding.log"
+             # Sanitize the fallback path too
+             BIG_EMBEDDING_DIR_REL=$(sanitize_path "$BIG_EMBEDDING_DIR_REL")
         fi
     fi
+    
+    # Verify the directory exists
+    if [ ! -d "$BIG_EMBEDDING_DIR_REL" ]; then
+        echo "ERROR: Checkpoint directory does not exist: $BIG_EMBEDDING_DIR_REL" | tee -a "$LOG_DIR/09_train_big_embedding.log"
+        # Try a more aggressive fallback
+        BIG_EMBEDDING_DIR_REL=$(find runs/checkpoint -maxdepth 1 -type d -name "*big*" | grep -v 'pretrained_emb' | sort -r | head -n 1 || echo "NOT_FOUND")
+        if [ "$BIG_EMBEDDING_DIR_REL" == "NOT_FOUND" ] || [ -z "$BIG_EMBEDDING_DIR_REL" ] || [ ! -d "$BIG_EMBEDDING_DIR_REL" ]; then
+            echo "ERROR: Could not find any BigBird pretrained embedding checkpoint directory." | tee -a "$LOG_DIR/09_train_big_embedding.log"
+            exit 1
+        else
+            echo "WARNING: Using alternative checkpoint directory: $BIG_EMBEDDING_DIR_REL" | tee -a "$LOG_DIR/09_train_big_embedding.log"
+        fi
+    fi
+    
     BIG_EMBEDDING_CKPT_NAME=$(basename "$BIG_EMBEDDING_DIR_REL")
+    # Sanitize the checkpoint name too
+    BIG_EMBEDDING_CKPT_NAME=$(sanitize_path "$BIG_EMBEDDING_CKPT_NAME")
+    
     echo "BigBird Pretrained Embedding Training finished. Checkpoint directory: $BIG_EMBEDDING_DIR_REL (Name: $BIG_EMBEDDING_CKPT_NAME)" | tee -a "$LOG_DIR/09_train_big_embedding.log"
 
     # Delete .npy files after training
@@ -649,7 +721,20 @@ else
         echo "Cannot continue without checkpoint. Please run without --resume-from option first." | tee -a "$LOG_DIR/09_train_big_embedding.log"
         exit 1
     fi
+    
+    # Sanitize the directory path to remove problematic characters
+    BIG_EMBEDDING_DIR_REL=$(sanitize_path "$BIG_EMBEDDING_DIR_REL")
+    
+    # Verify the directory exists
+    if [ ! -d "$BIG_EMBEDDING_DIR_REL" ]; then
+        echo "ERROR: Checkpoint directory exists but contains problematic characters: $BIG_EMBEDDING_DIR_REL" | tee -a "$LOG_DIR/09_train_big_embedding.log"
+        exit 1
+    fi
+    
     BIG_EMBEDDING_CKPT_NAME=$(basename "$BIG_EMBEDDING_DIR_REL")
+    # Sanitize the checkpoint name too
+    BIG_EMBEDDING_CKPT_NAME=$(sanitize_path "$BIG_EMBEDDING_CKPT_NAME")
+    
     echo "Found BigBird Embedding checkpoint from previous run: $BIG_EMBEDDING_DIR_REL (Name: $BIG_EMBEDDING_CKPT_NAME)" | tee -a "$LOG_DIR/09_train_big_embedding.log"
 fi
 
@@ -725,45 +810,80 @@ if should_run_step 13; then
     fi
 
     # Extract directory name from the log file
-    LONG_DEFAULT_DIR_REL=$(grep -Eo 'Directory (created|already exists): \./[^ ]+' "$LOG_DIR/13_train_long_default.log" | sed -E 's/Directory (created|already exists): \.\///' | tail -1 || echo "NOT_FOUND")
+    LONGFORMER_DEFAULT_DIR_REL=$(grep -Eo 'Directory (created|already exists): \./[^ ]+' "$LOG_DIR/13_train_long_default.log" | sed -E 's/Directory (created|already exists): \.\///' | tail -1 || echo "NOT_FOUND")
 
-    if [ "$LONG_DEFAULT_DIR_REL" == "NOT_FOUND" ] || [ -z "$LONG_DEFAULT_DIR_REL" ]; then
+    # Sanitize the path to remove any problematic characters
+    LONGFORMER_DEFAULT_DIR_REL=$(sanitize_path "$LONGFORMER_DEFAULT_DIR_REL")
+
+    if [ "$LONGFORMER_DEFAULT_DIR_REL" == "NOT_FOUND" ] || [ -z "$LONGFORMER_DEFAULT_DIR_REL" ]; then
         echo "ERROR: Could not determine Longformer default checkpoint directory from training output." | tee -a "$LOG_DIR/13_train_long_default.log"
-        # Fallback is still useful
-        LONG_DEFAULT_DIR_REL=$(ls -td runs/checkpoint/saved_best_*_long_* | grep -v 'pretrained_emb' | head -n 1 || echo "NOT_FOUND")
-         if [ "$LONG_DEFAULT_DIR_REL" == "NOT_FOUND" ] || [ -z "$LONG_DEFAULT_DIR_REL" ]; then
+        # Fallback is still useful if script output format changes unexpectedly
+        LONGFORMER_DEFAULT_DIR_REL=$(ls -td runs/checkpoint/saved_best_*_long_* | grep -v 'pretrained_emb' | head -n 1 || echo "NOT_FOUND") # Exclude pretrained_emb
+        if [ "$LONGFORMER_DEFAULT_DIR_REL" == "NOT_FOUND" ] || [ -z "$LONGFORMER_DEFAULT_DIR_REL" ]; then
              echo "ERROR: Fallback directory search also failed." | tee -a "$LOG_DIR/13_train_long_default.log"
              exit 1
         else
-             echo "WARNING: Used fallback to find checkpoint directory: $LONG_DEFAULT_DIR_REL" | tee -a "$LOG_DIR/13_train_long_default.log"
+             echo "WARNING: Used fallback to find checkpoint directory: $LONGFORMER_DEFAULT_DIR_REL" | tee -a "$LOG_DIR/13_train_long_default.log"
+             # Sanitize the fallback path too
+             LONGFORMER_DEFAULT_DIR_REL=$(sanitize_path "$LONGFORMER_DEFAULT_DIR_REL")
         fi
     fi
-    LONG_DEFAULT_CKPT_NAME=$(basename "$LONG_DEFAULT_DIR_REL")
-    echo "Longformer Default Training finished. Checkpoint directory: $LONG_DEFAULT_DIR_REL (Name: $LONG_DEFAULT_CKPT_NAME)" | tee -a "$LOG_DIR/13_train_long_default.log"
+
+    # Verify the directory exists
+    if [ ! -d "$LONGFORMER_DEFAULT_DIR_REL" ]; then
+        echo "ERROR: Checkpoint directory does not exist: $LONGFORMER_DEFAULT_DIR_REL" | tee -a "$LOG_DIR/13_train_long_default.log"
+        # Try a more aggressive fallback
+        LONGFORMER_DEFAULT_DIR_REL=$(find runs/checkpoint -maxdepth 1 -type d -name "*long*" | grep -v 'pretrained_emb' | sort -r | head -n 1 || echo "NOT_FOUND")
+        if [ "$LONGFORMER_DEFAULT_DIR_REL" == "NOT_FOUND" ] || [ -z "$LONGFORMER_DEFAULT_DIR_REL" ] || [ ! -d "$LONGFORMER_DEFAULT_DIR_REL" ]; then
+            echo "ERROR: Could not find any Longformer default checkpoint directory." | tee -a "$LOG_DIR/13_train_long_default.log"
+            exit 1
+        else
+            echo "WARNING: Using alternative checkpoint directory: $LONGFORMER_DEFAULT_DIR_REL" | tee -a "$LOG_DIR/13_train_long_default.log"
+        fi
+    fi
+    
+    LONGFORMER_DEFAULT_CKPT_NAME=$(basename "$LONGFORMER_DEFAULT_DIR_REL")
+    # Sanitize the checkpoint name too
+    LONGFORMER_DEFAULT_CKPT_NAME=$(sanitize_path "$LONGFORMER_DEFAULT_CKPT_NAME")
+    
+    echo "Longformer Default Training finished. Checkpoint directory: $LONGFORMER_DEFAULT_DIR_REL (Name: $LONGFORMER_DEFAULT_CKPT_NAME)" | tee -a "$LOG_DIR/13_train_long_default.log"
 
     # Delete .npy files after training
-    delete_npy_files "$LONG_DEFAULT_DIR_REL" "$LOG_DIR/13_train_long_default.log"
+    delete_npy_files "$LONGFORMER_DEFAULT_DIR_REL" "$LOG_DIR/13_train_long_default.log"
 else
     skip_step 13 "Training Longformer (Default)" "$LOG_DIR/13_train_long_default.log"
     # If skipping, we need to determine the checkpoint directory from previous runs
-    LONG_DEFAULT_DIR_REL=$(ls -td runs/checkpoint/saved_best_*_long_* | grep -v 'pretrained_emb' | head -n 1 || echo "NOT_FOUND")
-    if [ "$LONG_DEFAULT_DIR_REL" == "NOT_FOUND" ] || [ -z "$LONG_DEFAULT_DIR_REL" ]; then
+    LONGFORMER_DEFAULT_DIR_REL=$(ls -td runs/checkpoint/saved_best_*_long_* | grep -v 'pretrained_emb' | head -n 1 || echo "NOT_FOUND")
+    if [ "$LONGFORMER_DEFAULT_DIR_REL" == "NOT_FOUND" ] || [ -z "$LONGFORMER_DEFAULT_DIR_REL" ]; then
         echo "ERROR: Could not find Longformer default checkpoint directory from previous runs." | tee -a "$LOG_DIR/13_train_long_default.log"
         echo "Cannot continue without checkpoint. Please run without --resume-from option first." | tee -a "$LOG_DIR/13_train_long_default.log"
         exit 1
     fi
-    LONG_DEFAULT_CKPT_NAME=$(basename "$LONG_DEFAULT_DIR_REL")
-    echo "Found Longformer Default checkpoint from previous run: $LONG_DEFAULT_DIR_REL (Name: $LONG_DEFAULT_CKPT_NAME)" | tee -a "$LOG_DIR/13_train_long_default.log"
+    
+    # Sanitize the directory path to remove problematic characters
+    LONGFORMER_DEFAULT_DIR_REL=$(sanitize_path "$LONGFORMER_DEFAULT_DIR_REL")
+    
+    # Verify the directory exists
+    if [ ! -d "$LONGFORMER_DEFAULT_DIR_REL" ]; then
+        echo "ERROR: Checkpoint directory exists but contains problematic characters: $LONGFORMER_DEFAULT_DIR_REL" | tee -a "$LOG_DIR/13_train_long_default.log"
+        exit 1
+    fi
+    
+    LONGFORMER_DEFAULT_CKPT_NAME=$(basename "$LONGFORMER_DEFAULT_DIR_REL")
+    # Sanitize the checkpoint name too
+    LONGFORMER_DEFAULT_CKPT_NAME=$(sanitize_path "$LONGFORMER_DEFAULT_CKPT_NAME")
+    
+    echo "Found Longformer Default checkpoint from previous run: $LONGFORMER_DEFAULT_DIR_REL (Name: $LONGFORMER_DEFAULT_CKPT_NAME)" | tee -a "$LOG_DIR/13_train_long_default.log"
 fi
 
 # 14. Run Inference (Longformer Default)
 if should_run_step 14; then
     echo "[Step 14/$TOTAL_STEPS] Running Inference (Longformer Default)..." | tee "$LOG_DIR/14_infer_long_default.log"
-    log_exec "$LOG_DIR/14_infer_long_default.log" python inference.py --checkpoint "$LONG_DEFAULT_CKPT_NAME" --model long --batch $INFER_BATCH_SIZE --mask 0.75
+    log_exec "$LOG_DIR/14_infer_long_default.log" python inference.py --checkpoint "$LONGFORMER_DEFAULT_CKPT_NAME" --model long --batch $INFER_BATCH_SIZE --mask 0.75
     echo "Inference (Longformer Default) finished."
 
     # Delete .npy files after inference
-    delete_npy_files "$LONG_DEFAULT_DIR_REL" "$LOG_DIR/14_infer_long_default.log"
+    delete_npy_files "$LONGFORMER_DEFAULT_DIR_REL" "$LOG_DIR/14_infer_long_default.log"
 
     # Archive and send inference log
     echo "Archiving and sending Longformer Default inference log..." | tee -a "$LOG_DIR/14_infer_long_default.log"
@@ -777,18 +897,18 @@ fi
 if should_run_step 15; then
     echo "[Step 15/$TOTAL_STEPS] Running Integrated Gradients (Longformer Default)..." | tee "$LOG_DIR/15_intgrad_long_default.log"
     echo "Starting integrated gradients calculation at $(date)" | tee -a "$LOG_DIR/15_intgrad_long_default.log"
-    log_exec "$LOG_DIR/15_intgrad_long_default.log" python visualize/int_grad.py --checkpoint "$LONG_DEFAULT_CKPT_NAME" --model long --CF --pre --n_steps 20
+    log_exec "$LOG_DIR/15_intgrad_long_default.log" python visualize/int_grad.py --checkpoint "$LONGFORMER_DEFAULT_CKPT_NAME" --model long --CF --pre --n_steps 20
     echo "Completed integrated gradients calculation at $(date)" | tee -a "$LOG_DIR/15_intgrad_long_default.log"
     echo "Integrated Gradients (Longformer Default) finished."
 
     # Delete .npy files after integrated gradients
-    delete_npy_files "$LONG_DEFAULT_DIR_REL" "$LOG_DIR/15_intgrad_long_default.log"
+    delete_npy_files "$LONGFORMER_DEFAULT_DIR_REL" "$LOG_DIR/15_intgrad_long_default.log"
 
     # Create archive of IntGrad results and checkpoint
     echo "[Step 15/$TOTAL_STEPS] Archiving and Sending Longformer Default Results..." | tee -a "$LOG_DIR/15_intgrad_long_default.log"
-    create_archive "Long_Default_IntGrad" "PATTERN:$LONG_DEFAULT_DIR_REL:*.png *.npy" "Longformer Default IntGrad Results" "$LOG_DIR/15_intgrad_long_default.log"
+    create_archive "Long_Default_IntGrad" "PATTERN:$LONGFORMER_DEFAULT_DIR_REL:*.png *.npy" "Longformer Default IntGrad Results" "$LOG_DIR/15_intgrad_long_default.log"
     send_with_runpodctl "${ARCHIVE_DIR}/Long_Default_IntGrad.zip" "Longformer Default IntGrad Results" "$LOG_DIR/15_intgrad_long_default.log"
-    create_archive "Long_Default_Checkpoint" "$LONG_DEFAULT_DIR_REL" "Longformer Default Checkpoint" "$LOG_DIR/15_intgrad_long_default.log"
+    create_archive "Long_Default_Checkpoint" "$LONGFORMER_DEFAULT_DIR_REL" "Longformer Default Checkpoint" "$LOG_DIR/15_intgrad_long_default.log"
     send_with_runpodctl "${ARCHIVE_DIR}/Long_Default_Checkpoint.zip" "Longformer Default Checkpoint" "$LOG_DIR/15_intgrad_long_default.log"
 else
     skip_step 15 "Running Integrated Gradients (Longformer Default)" "$LOG_DIR/15_intgrad_long_default.log"
@@ -806,45 +926,80 @@ if should_run_step 16; then
     fi
 
     # Extract directory name from the log file
-    LONG_EMBEDDING_DIR_REL=$(grep -Eo 'Directory (created|already exists): \./[^ ]+' "$LOG_DIR/16_train_long_embedding.log" | sed -E 's/Directory (created|already exists): \.\///' | tail -1 || echo "NOT_FOUND")
+    LONGFORMER_EMBEDDING_DIR_REL=$(grep -Eo 'Directory (created|already exists): \./[^ ]+' "$LOG_DIR/16_train_long_embedding.log" | sed -E 's/Directory (created|already exists): \.\///' | tail -1 || echo "NOT_FOUND")
 
-    if [ "$LONG_EMBEDDING_DIR_REL" == "NOT_FOUND" ] || [ -z "$LONG_EMBEDDING_DIR_REL" ]; then
-        echo "ERROR: Could not determine Longformer embedding checkpoint directory from training output." | tee -a "$LOG_DIR/16_train_long_embedding.log"
-        # Fallback is still useful
-        LONG_EMBEDDING_DIR_REL=$(ls -td runs/checkpoint/saved_best_*_long_*pretrained_emb* | head -n 1 || echo "NOT_FOUND")
-         if [ "$LONG_EMBEDDING_DIR_REL" == "NOT_FOUND" ] || [ -z "$LONG_EMBEDDING_DIR_REL" ]; then
+    # Sanitize the path to remove any problematic characters
+    LONGFORMER_EMBEDDING_DIR_REL=$(sanitize_path "$LONGFORMER_EMBEDDING_DIR_REL")
+
+    if [ "$LONGFORMER_EMBEDDING_DIR_REL" == "NOT_FOUND" ] || [ -z "$LONGFORMER_EMBEDDING_DIR_REL" ]; then
+        echo "ERROR: Could not determine Longformer pretrained embedding checkpoint directory from training output." | tee -a "$LOG_DIR/16_train_long_embedding.log"
+        # Fallback is still useful if script output format changes unexpectedly
+        LONGFORMER_EMBEDDING_DIR_REL=$(ls -td runs/checkpoint/saved_best_*_long_*pretrained_emb* | head -n 1 || echo "NOT_FOUND")
+        if [ "$LONGFORMER_EMBEDDING_DIR_REL" == "NOT_FOUND" ] || [ -z "$LONGFORMER_EMBEDDING_DIR_REL" ]; then
              echo "ERROR: Fallback directory search also failed." | tee -a "$LOG_DIR/16_train_long_embedding.log"
              exit 1
         else
-             echo "WARNING: Used fallback to find checkpoint directory: $LONG_EMBEDDING_DIR_REL" | tee -a "$LOG_DIR/16_train_long_embedding.log"
+             echo "WARNING: Used fallback to find checkpoint directory: $LONGFORMER_EMBEDDING_DIR_REL" | tee -a "$LOG_DIR/16_train_long_embedding.log"
+             # Sanitize the fallback path too
+             LONGFORMER_EMBEDDING_DIR_REL=$(sanitize_path "$LONGFORMER_EMBEDDING_DIR_REL")
         fi
     fi
-    LONG_EMBEDDING_CKPT_NAME=$(basename "$LONG_EMBEDDING_DIR_REL")
-    echo "Longformer Pretrained Embedding Training finished. Checkpoint directory: $LONG_EMBEDDING_DIR_REL (Name: $LONG_EMBEDDING_CKPT_NAME)" | tee -a "$LOG_DIR/16_train_long_embedding.log"
+
+    # Verify the directory exists
+    if [ ! -d "$LONGFORMER_EMBEDDING_DIR_REL" ]; then
+        echo "ERROR: Checkpoint directory does not exist: $LONGFORMER_EMBEDDING_DIR_REL" | tee -a "$LOG_DIR/16_train_long_embedding.log"
+        # Try a more aggressive fallback
+        LONGFORMER_EMBEDDING_DIR_REL=$(find runs/checkpoint -maxdepth 1 -type d -name "*long*pretrained_emb*" | sort -r | head -n 1 || echo "NOT_FOUND")
+        if [ "$LONGFORMER_EMBEDDING_DIR_REL" == "NOT_FOUND" ] || [ -z "$LONGFORMER_EMBEDDING_DIR_REL" ] || [ ! -d "$LONGFORMER_EMBEDDING_DIR_REL" ]; then
+            echo "ERROR: Could not find any Longformer pretrained embedding checkpoint directory." | tee -a "$LOG_DIR/16_train_long_embedding.log"
+            exit 1
+        else
+            echo "WARNING: Using alternative checkpoint directory: $LONGFORMER_EMBEDDING_DIR_REL" | tee -a "$LOG_DIR/16_train_long_embedding.log"
+        fi
+    fi
+    
+    LONGFORMER_EMBEDDING_CKPT_NAME=$(basename "$LONGFORMER_EMBEDDING_DIR_REL")
+    # Sanitize the checkpoint name too
+    LONGFORMER_EMBEDDING_CKPT_NAME=$(sanitize_path "$LONGFORMER_EMBEDDING_CKPT_NAME")
+    
+    echo "Longformer Pretrained Embedding Training finished. Checkpoint directory: $LONGFORMER_EMBEDDING_DIR_REL (Name: $LONGFORMER_EMBEDDING_CKPT_NAME)" | tee -a "$LOG_DIR/16_train_long_embedding.log"
 
     # Delete .npy files after training
-    delete_npy_files "$LONG_EMBEDDING_DIR_REL" "$LOG_DIR/16_train_long_embedding.log"
+    delete_npy_files "$LONGFORMER_EMBEDDING_DIR_REL" "$LOG_DIR/16_train_long_embedding.log"
 else
     skip_step 16 "Training Longformer (Pretrained Embeddings)" "$LOG_DIR/16_train_long_embedding.log"
     # If skipping, we need to determine the checkpoint directory from previous runs
-    LONG_EMBEDDING_DIR_REL=$(ls -td runs/checkpoint/saved_best_*_long_*pretrained_emb* | head -n 1 || echo "NOT_FOUND")
-    if [ "$LONG_EMBEDDING_DIR_REL" == "NOT_FOUND" ] || [ -z "$LONG_EMBEDDING_DIR_REL" ]; then
+    LONGFORMER_EMBEDDING_DIR_REL=$(ls -td runs/checkpoint/saved_best_*_long_*pretrained_emb* | head -n 1 || echo "NOT_FOUND")
+    if [ "$LONGFORMER_EMBEDDING_DIR_REL" == "NOT_FOUND" ] || [ -z "$LONGFORMER_EMBEDDING_DIR_REL" ]; then
         echo "ERROR: Could not find Longformer embedding checkpoint directory from previous runs." | tee -a "$LOG_DIR/16_train_long_embedding.log"
         echo "Cannot continue without checkpoint. Please run without --resume-from option first." | tee -a "$LOG_DIR/16_train_long_embedding.log"
         exit 1
     fi
-    LONG_EMBEDDING_CKPT_NAME=$(basename "$LONG_EMBEDDING_DIR_REL")
-    echo "Found Longformer Embedding checkpoint from previous run: $LONG_EMBEDDING_DIR_REL (Name: $LONG_EMBEDDING_CKPT_NAME)" | tee -a "$LOG_DIR/16_train_long_embedding.log"
+    
+    # Sanitize the directory path to remove problematic characters
+    LONGFORMER_EMBEDDING_DIR_REL=$(sanitize_path "$LONGFORMER_EMBEDDING_DIR_REL")
+    
+    # Verify the directory exists
+    if [ ! -d "$LONGFORMER_EMBEDDING_DIR_REL" ]; then
+        echo "ERROR: Checkpoint directory exists but contains problematic characters: $LONGFORMER_EMBEDDING_DIR_REL" | tee -a "$LOG_DIR/16_train_long_embedding.log"
+        exit 1
+    fi
+    
+    LONGFORMER_EMBEDDING_CKPT_NAME=$(basename "$LONGFORMER_EMBEDDING_DIR_REL")
+    # Sanitize the checkpoint name too
+    LONGFORMER_EMBEDDING_CKPT_NAME=$(sanitize_path "$LONGFORMER_EMBEDDING_CKPT_NAME")
+    
+    echo "Found Longformer Embedding checkpoint from previous run: $LONGFORMER_EMBEDDING_DIR_REL (Name: $LONGFORMER_EMBEDDING_CKPT_NAME)" | tee -a "$LOG_DIR/16_train_long_embedding.log"
 fi
 
 # 17. Run Inference (Longformer Embedding)
 if should_run_step 17; then
     echo "[Step 17/$TOTAL_STEPS] Running Inference (Longformer Embedding)..." | tee "$LOG_DIR/17_infer_long_embedding.log"
-    log_exec "$LOG_DIR/17_infer_long_embedding.log" python inference.py --checkpoint "$LONG_EMBEDDING_CKPT_NAME" --model long --batch $INFER_BATCH_SIZE --mask 0.75
+    log_exec "$LOG_DIR/17_infer_long_embedding.log" python inference.py --checkpoint "$LONGFORMER_EMBEDDING_CKPT_NAME" --model long --batch $INFER_BATCH_SIZE --mask 0.75
     echo "Inference (Longformer Embedding) finished."
 
     # Delete .npy files after inference
-    delete_npy_files "$LONG_EMBEDDING_DIR_REL" "$LOG_DIR/17_infer_long_embedding.log"
+    delete_npy_files "$LONGFORMER_EMBEDDING_DIR_REL" "$LOG_DIR/17_infer_long_embedding.log"
 
     # Archive and send inference log
     echo "Archiving and sending Longformer Embedding inference log..." | tee -a "$LOG_DIR/17_infer_long_embedding.log"
@@ -858,18 +1013,18 @@ fi
 if should_run_step 18; then
     echo "[Step 18/$TOTAL_STEPS] Running Integrated Gradients (Longformer Embedding)..." | tee "$LOG_DIR/18_intgrad_long_embedding.log"
     echo "Starting integrated gradients calculation at $(date)" | tee -a "$LOG_DIR/18_intgrad_long_embedding.log"
-    log_exec "$LOG_DIR/18_intgrad_long_embedding.log" python visualize/int_grad.py --checkpoint "$LONG_EMBEDDING_CKPT_NAME" --model long --CF --pre --n_steps 20
+    log_exec "$LOG_DIR/18_intgrad_long_embedding.log" python visualize/int_grad.py --checkpoint "$LONGFORMER_EMBEDDING_CKPT_NAME" --model long --CF --pre --n_steps 20
     echo "Completed integrated gradients calculation at $(date)" | tee -a "$LOG_DIR/18_intgrad_long_embedding.log"
     echo "Integrated Gradients (Longformer Embedding) finished."
 
     # Delete .npy files after integrated gradients
-    delete_npy_files "$LONG_EMBEDDING_DIR_REL" "$LOG_DIR/18_intgrad_long_embedding.log"
+    delete_npy_files "$LONGFORMER_EMBEDDING_DIR_REL" "$LOG_DIR/18_intgrad_long_embedding.log"
 
     # Create archive of IntGrad results and checkpoint
     echo "[Step 18/$TOTAL_STEPS] Archiving and Sending Longformer Embedding Results..." | tee -a "$LOG_DIR/18_intgrad_long_embedding.log"
-    create_archive "Long_Emb_IntGrad" "PATTERN:$LONG_EMBEDDING_DIR_REL:*.png *.npy" "Longformer Embedding IntGrad Results" "$LOG_DIR/18_intgrad_long_embedding.log"
+    create_archive "Long_Emb_IntGrad" "PATTERN:$LONGFORMER_EMBEDDING_DIR_REL:*.png *.npy" "Longformer Embedding IntGrad Results" "$LOG_DIR/18_intgrad_long_embedding.log"
     send_with_runpodctl "${ARCHIVE_DIR}/Long_Emb_IntGrad.zip" "Longformer Embedding IntGrad Results" "$LOG_DIR/18_intgrad_long_embedding.log"
-    create_archive "Long_Emb_Checkpoint" "$LONG_EMBEDDING_DIR_REL" "Longformer Embedding Checkpoint" "$LOG_DIR/18_intgrad_long_embedding.log"
+    create_archive "Long_Emb_Checkpoint" "$LONGFORMER_EMBEDDING_DIR_REL" "Longformer Embedding Checkpoint" "$LOG_DIR/18_intgrad_long_embedding.log"
     send_with_runpodctl "${ARCHIVE_DIR}/Long_Emb_Checkpoint.zip" "Longformer Embedding Checkpoint" "$LOG_DIR/18_intgrad_long_embedding.log"
 else
     skip_step 18 "Running Integrated Gradients (Longformer Embedding)" "$LOG_DIR/18_intgrad_long_embedding.log"
