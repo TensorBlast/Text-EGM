@@ -17,6 +17,13 @@ PRETRAINED_EMB_DIR="pretrained_embeddings"
 CHECKPOINT_BASE_DIR="runs/checkpoint"
 GCP_HOSTNAME="gcp-egm-runner" # Hostname for Tailscale
 
+# Detect if running in Docker container
+IN_DOCKER=false
+if [ -f /.dockerenv ] || grep -q docker /proc/1/cgroup 2>/dev/null; then
+    IN_DOCKER=true
+    echo "Docker environment detected."
+fi
+
 # --- Default Argument Values ---
 USE_TAILSCALE=false
 TAILSCALE_AUTH_KEY=""
@@ -85,31 +92,30 @@ LOCAL_LOG_DEST="${MAC_USER}@${MAC_HOST}:${LOCAL_DEST_BASE_DIR}/logs/"
 
 # --- Helper Functions ---
 
-# Executes a command, logging stdout and stderr to a file
+# Executes a command, logging stdout and stderr to a file and displaying to console
 log_exec() {
     local log_file="$1"
     shift
-    echo "--------------------------------------------------" >> "$log_file"
-    echo "Running command: $*" >> "$log_file"
-    echo "Timestamp: $(date)" >> "$log_file"
-    echo "--------------------------------------------------" >> "$log_file"
-    # Execute command, appending stdout and stderr to the log file
-    # Use eval to handle potential quotes in commands correctly, though be cautious
-    if ! eval "$@" >> "$log_file" 2>&1; then
+    echo "--------------------------------------------------" | tee -a "$log_file"
+    echo "Running command: $*" | tee -a "$log_file"
+    echo "Timestamp: $(date)" | tee -a "$log_file"
+    echo "--------------------------------------------------" | tee -a "$log_file"
+    # Execute command, piping stdout and stderr to both the log file and console using tee
+    if ! eval "$@" 2>&1 | tee -a "$log_file"; then
         local exit_code=$?
-        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >> "$log_file"
-        echo "ERROR: Command failed with exit code $exit_code. See details above." >> "$log_file"
-        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >> "$log_file"
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" | tee -a "$log_file"
+        echo "ERROR: Command failed with exit code $exit_code. See details above." | tee -a "$log_file"
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" | tee -a "$log_file"
         echo "ERROR: Command failed: $*" >&2 # Also print to stderr
         # Set -e handles exiting, but log the error explicitly
         return $exit_code
     fi
-     echo "--------------------------------------------------" >> "$log_file"
-     echo "Command finished: $*" >> "$log_file"
-     echo "Timestamp: $(date)" >> "$log_file"
-     echo "--------------------------------------------------" >> "$log_file"
-     # Ensure the function returns success if the command succeeded
-     return 0
+    echo "--------------------------------------------------" | tee -a "$log_file"
+    echo "Command finished: $*" | tee -a "$log_file"
+    echo "Timestamp: $(date)" | tee -a "$log_file"
+    echo "--------------------------------------------------" | tee -a "$log_file"
+    # Ensure the function returns success if the command succeeded
+    return 0
 }
 
 # Starts an scp process in the background to copy files/dirs
@@ -184,23 +190,33 @@ echo "[Step 1/$TOTAL_STEPS] System Preparation..." | tee "$LOG_DIR/01_prep.log"
     if ! command -v wget &> /dev/null || ! command -v git &> /dev/null || ! command -v find &> /dev/null; then
         echo "One or more required tools (wget, git, find) not found, attempting installation..."
         # Assuming Debian/Ubuntu based system
-        sudo apt-get update -y
-        sudo apt-get install -y wget git findutils
+         apt-get update -y
+         apt-get install -y wget git findutils
     else
         echo "wget, git, find found."
     fi
 
     if $USE_TAILSCALE; then
-        echo "Ensuring Tailscale is installed..."
-        if ! command -v tailscale &> /dev/null; then
-            echo "Tailscale not found, installing..."
-            curl -fsSL https://tailscale.com/install.sh | sh
+        if $IN_DOCKER; then
+            echo "WARNING: Tailscale requested, but we're in a Docker container."
+            echo "Tailscale requires special setup in Docker. Consider these options:"
+            echo "1. Run the container with --network=host --privileged"
+            echo "2. Use host networking instead of Tailscale"
+            echo "3. Mount the Tailscale socket from host: -v /var/run/tailscale:/var/run/tailscale"
+            echo "For now, continuing without Tailscale..."
+            USE_TAILSCALE=false
         else
-            echo "Tailscale found."
+            echo "Ensuring Tailscale is installed..."
+            if ! command -v tailscale &> /dev/null; then
+                echo "Tailscale not found, installing..."
+                curl -fsSL https://tailscale.com/install.sh | sh
+            else
+                echo "Tailscale found."
+            fi
         fi
     fi
     echo "System preparation checks complete."
-} >> "$LOG_DIR/01_prep.log" 2>&1
+} 2>&1 | tee -a "$LOG_DIR/01_prep.log"
 echo "System preparation finished."
 
 # 2. Clone Repo and Setup
@@ -225,21 +241,25 @@ if $USE_TAILSCALE; then
     echo "[Step 3/$TOTAL_STEPS] Activating Tailscale..." | tee "$LOG_DIR/03_tailscale_up.log"
     echo "Attempting to bring Tailscale up..." >> "$LOG_DIR/03_tailscale_up.log"
     # Check current status first
-    if sudo tailscale status > /dev/null 2>&1; then
+    if tailscale status > /dev/null 2>&1; then
         echo "Tailscale already seems to be running/configured. Status:" | tee -a "$LOG_DIR/03_tailscale_up.log"
-        sudo tailscale status | tee -a "$LOG_DIR/03_tailscale_up.log"
-        echo "Attempting 'tailscale up' anyway to ensure correct key/settings... Use 'sudo tailscale logout' to reset if needed." | tee -a "$LOG_DIR/03_tailscale_up.log"
+        tailscale status | tee -a "$LOG_DIR/03_tailscale_up.log"
+        echo "Attempting 'tailscale up' anyway to ensure correct key/settings... Use 'tailscale logout' to reset if needed." | tee -a "$LOG_DIR/03_tailscale_up.log"
     fi
     # Use --accept-routes to potentially access Mac services, adjust hostname
     # Using --ssh enables Tailscale SSH server on the GCP instance (optional but useful)
     # Use quotes around the auth key in case it contains special characters
-    log_exec "$LOG_DIR/03_tailscale_up.log" sudo tailscale up --authkey=\"${TAILSCALE_AUTH_KEY}\" --hostname=\"${GCP_HOSTNAME}\" --accept-routes --ssh
+    log_exec "$LOG_DIR/03_tailscale_up.log" tailscale up --authkey=\"${TAILSCALE_AUTH_KEY}\" --hostname=\"${GCP_HOSTNAME}\" --accept-routes --ssh
     echo "Tailscale activation attempt finished. Final status:" | tee -a "$LOG_DIR/03_tailscale_up.log"
-    sudo tailscale status | tee -a "$LOG_DIR/03_tailscale_up.log"
+    tailscale status | tee -a "$LOG_DIR/03_tailscale_up.log"
     echo "Sleeping for 5 seconds to allow Tailscale connection to establish..." | tee -a "$LOG_DIR/03_tailscale_up.log"
     sleep 5 # Give Tailscale a moment to connect/update routes
 else
     echo "[Step 3/$TOTAL_STEPS] Skipping Tailscale Activation." | tee "$LOG_DIR/03_tailscale_up.log"
+    if $IN_DOCKER; then
+        echo "Running in Docker container without Tailscale." | tee -a "$LOG_DIR/03_tailscale_up.log"
+        echo "Make sure your container has proper network connectivity to the Mac." | tee -a "$LOG_DIR/03_tailscale_up.log"
+    fi
 fi
 
 # 4. Preprocessing
@@ -263,7 +283,7 @@ PID_SCP_BIG_EMB_LOG=$(start_log_scp "$LOG_DIR/05_pretrain_big.log" "$LOG_DIR/06_
 # 7. Train BigBird (Default)
 echo "[Step 7/$TOTAL_STEPS] Training BigBird (Default)..." | tee "$LOG_DIR/07_train_big_default.log"
 set +e # Temporarily disable exit on error for Python script capture
-TRAIN_BIG_DEFAULT_OUTPUT=$(python train.py --model big --epochs 50 --batch 4 --no-use_ce 2>&1 | tee -a "$LOG_DIR/07_train_big_default.log")
+TRAIN_BIG_DEFAULT_OUTPUT=$(python train.py --model big --epochs 20 --batch 4 --no-use_ce 2>&1 | tee -a "$LOG_DIR/07_train_big_default.log")
 PYTHON_EXIT_CODE=$?
 set -e # Re-enable exit on error
 if [ $PYTHON_EXIT_CODE -ne 0 ]; then
@@ -309,7 +329,7 @@ PID_SCP_BIG_DEFAULT_INFER_LOG=$(start_log_scp "$LOG_DIR/09_infer_big_default.log
 # 11. Train BigBird (Pretrained Embeddings)
 echo "[Step 11/$TOTAL_STEPS] Training BigBird (Pretrained Embeddings)..." | tee "$LOG_DIR/11_train_big_embedding.log"
 set +e
-TRAIN_BIG_EMB_OUTPUT=$(python train.py --model big --epochs 50 --batch 4 --no-use_ce --pretrained_embeddings ./"$PRETRAINED_EMB_DIR"/big_embedding_weights.pt 2>&1 | tee -a "$LOG_DIR/11_train_big_embedding.log")
+TRAIN_BIG_EMB_OUTPUT=$(python train.py --model big --epochs 20 --batch 4 --no-use_ce --pretrained_embeddings ./"$PRETRAINED_EMB_DIR"/big_embedding_weights.pt 2>&1 | tee -a "$LOG_DIR/11_train_big_embedding.log")
 PYTHON_EXIT_CODE=$?
 set -e
 if [ $PYTHON_EXIT_CODE -ne 0 ]; then
@@ -370,7 +390,7 @@ PID_SCP_BIG_EMBEDDING_INTGRAD_LOG=$(start_log_scp "$LOG_DIR/14_intgrad_big_embed
 # 17. Train Longformer (Default)
 echo "[Step 17/$TOTAL_STEPS] Training Longformer (Default)..." | tee "$LOG_DIR/17_train_long_default.log"
 set +e
-TRAIN_LONG_DEFAULT_OUTPUT=$(python train.py --model long --epochs 50 --batch 4 --no-use_ce 2>&1 | tee -a "$LOG_DIR/17_train_long_default.log")
+TRAIN_LONG_DEFAULT_OUTPUT=$(python train.py --model long --epochs 20 --batch 4 --no-use_ce 2>&1 | tee -a "$LOG_DIR/17_train_long_default.log")
 PYTHON_EXIT_CODE=$?
 set -e
 if [ $PYTHON_EXIT_CODE -ne 0 ]; then
@@ -416,7 +436,7 @@ PID_SCP_LONG_DEFAULT_INFER_LOG=$(start_log_scp "$LOG_DIR/19_infer_long_default.l
 # 21. Train Longformer (Pretrained Embeddings)
 echo "[Step 21/$TOTAL_STEPS] Training Longformer (Pretrained Embeddings)..." | tee "$LOG_DIR/21_train_long_embedding.log"
 set +e
-TRAIN_LONG_EMB_OUTPUT=$(python train.py --model long --epochs 50 --batch 4 --no-use_ce --pretrained_embeddings ./"$PRETRAINED_EMB_DIR"/long_embedding_weights.pt 2>&1 | tee -a "$LOG_DIR/21_train_long_embedding.log")
+TRAIN_LONG_EMB_OUTPUT=$(python train.py --model long --epochs 20 --batch 4 --no-use_ce --pretrained_embeddings ./"$PRETRAINED_EMB_DIR"/long_embedding_weights.pt 2>&1 | tee -a "$LOG_DIR/21_train_long_embedding.log")
 PYTHON_EXIT_CODE=$?
 set -e
 if [ $PYTHON_EXIT_CODE -ne 0 ]; then
