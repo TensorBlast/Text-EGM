@@ -36,7 +36,14 @@ log_exec() {
     echo "--------------------------------------------------" | tee -a "$log_file"
     
     # Execute command, tee to log file and display to console
-    if ! eval "$@" 2>&1 | tee -a "$log_file"; then
+    # For Python commands, set PYTHONUNBUFFERED=1 to ensure output is not buffered
+    local cmd="$*"
+    if [[ "$cmd" == python* ]]; then
+        # Set PYTHONUNBUFFERED for Python commands to prevent output buffering
+        cmd="PYTHONUNBUFFERED=1 $cmd"
+    fi
+    
+    if ! eval "$cmd" 2>&1 | tee -a "$log_file"; then
         local exit_code=$?
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" | tee -a "$log_file"
         echo "ERROR: Command failed with exit code $exit_code. See details above." | tee -a "$log_file"
