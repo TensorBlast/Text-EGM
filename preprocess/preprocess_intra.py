@@ -27,6 +27,7 @@ def download_and_extract_data(data_dir):
     """
     zip_path = os.path.join(data_dir, "intracardiac-atrial-fibrillation-database-1.0.0.zip")
     extract_dir = os.path.join(data_dir, "intracardiac-atrial-fibrillation-database-1.0.0")
+    url = "https://physionet.org/static/published-projects/iafdb/intracardiac-atrial-fibrillation-database-1.0.0.zip"
     
     # Check if data is already extracted
     if os.path.exists(extract_dir):
@@ -36,65 +37,110 @@ def download_and_extract_data(data_dir):
     # Create data directory if it doesn't exist
     ensure_directory_exists(data_dir)
     
+    # Flag to track if zip file existed before download attempt
+    zip_existed_before = os.path.exists(zip_path)
+    
     # Download if zip file doesn't exist
-    if not os.path.exists(zip_path):
-        url = "https://physionet.org/static/published-projects/iafdb/intracardiac-atrial-fibrillation-database-1.0.0.zip"
-        
-        # Try using wget first (usually faster)
-        try:
-            print(f"Downloading data using wget to {zip_path}...")
-            result = subprocess.run(
-                ["wget", "-O", zip_path, url, "--progress=bar:force:noscroll"], 
-                check=True
-            )
-            if result.returncode == 0:
-                print("Download completed successfully!")
-            else:
-                raise Exception("wget command failed")
-        except Exception as e:
-            print(f"wget download failed: {e}")
-            print("Falling back to Python requests for download...")
-            
-            # If wget fails, fall back to requests with a progress bar
-            try:
-                print(f"Downloading data to {zip_path}...")
-                response = requests.get(url, stream=True)
-                response.raise_for_status()
-                
-                # Get the file size from headers
-                total_size_in_bytes = int(response.headers.get('content-length', 0))
-                block_size = 1024  # 1 Kibibyte
-                
-                # Show download progress bar
-                progress_bar = tqdm(total=total_size_in_bytes, unit='iB', unit_scale=True)
-                
-                with open(zip_path, 'wb') as f:
-                    for data in response.iter_content(block_size):
-                        progress_bar.update(len(data))
-                        f.write(data)
-                progress_bar.close()
-                
-                if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
-                    print("ERROR, something went wrong with the download")
-                    return None
-                
-                print("Download completed successfully!")
-            except Exception as e:
-                print(f"Error downloading data: {e}")
-                return None
+    if not zip_existed_before:
+        download_successful = download_file(url, zip_path)
+        if not download_successful:
+            return None
     else:
         print(f"Zip file already exists at {zip_path}")
     
-    # Extract the zip file
-    print(f"Extracting data to {extract_dir}...")
+    # Try to extract the zip file
+    extract_successful = False
     try:
+        print(f"Extracting data to {extract_dir}...")
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(data_dir)
         print("Extraction completed successfully!")
-        return extract_dir
+        extract_successful = True
     except Exception as e:
         print(f"Error extracting data: {e}")
+        # If extraction failed and zip existed before, try to redownload
+        if zip_existed_before:
+            print("Zip file may be corrupted. Will redownload and try again.")
+            # Remove the corrupted zip file
+            try:
+                os.remove(zip_path)
+                print(f"Removed corrupted zip file: {zip_path}")
+            except Exception as rm_err:
+                print(f"Warning: Failed to remove corrupted zip file: {rm_err}")
+            
+            # Redownload
+            download_successful = download_file(url, zip_path)
+            if download_successful:
+                # Try extraction again
+                try:
+                    print(f"Trying extraction again after redownload...")
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(data_dir)
+                    print("Extraction completed successfully after redownload!")
+                    extract_successful = True
+                except Exception as retry_err:
+                    print(f"Error extracting data after redownload: {retry_err}")
+    
+    if extract_successful:
+        return extract_dir
+    else:
         return None
+
+def download_file(url, zip_path):
+    """
+    Downloads a file from the given URL to the specified path.
+    
+    Args:
+        url: URL to download from
+        zip_path: Local path to save the file to
+        
+    Returns:
+        bool: True if download was successful, False otherwise
+    """
+    # Try using wget first (usually faster)
+    try:
+        print(f"Downloading data using wget to {zip_path}...")
+        result = subprocess.run(
+            ["wget", "-O", zip_path, url, "--progress=bar:force:noscroll"], 
+            check=True
+        )
+        if result.returncode == 0:
+            print("Download completed successfully!")
+            return True
+        else:
+            raise Exception("wget command failed")
+    except Exception as e:
+        print(f"wget download failed: {e}")
+        print("Falling back to Python requests for download...")
+        
+        # If wget fails, fall back to requests with a progress bar
+        try:
+            print(f"Downloading data to {zip_path}...")
+            response = requests.get(url, stream=True)
+            response.raise_for_status()
+            
+            # Get the file size from headers
+            total_size_in_bytes = int(response.headers.get('content-length', 0))
+            block_size = 1024  # 1 Kibibyte
+            
+            # Show download progress bar
+            progress_bar = tqdm(total=total_size_in_bytes, unit='iB', unit_scale=True)
+            
+            with open(zip_path, 'wb') as f:
+                for data in response.iter_content(block_size):
+                    progress_bar.update(len(data))
+                    f.write(data)
+            progress_bar.close()
+            
+            if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
+                print("ERROR, something went wrong with the download")
+                return False
+            
+            print("Download completed successfully!")
+            return True
+        except Exception as e:
+            print(f"Error downloading data: {e}")
+            return False
 
 # def z_score_normalization(data):
 #     mean_val = np.mean(data, axis=(0, 1), keepdims=True)
