@@ -1,0 +1,39 @@
+[workspace]
+authors = ["Ankit Pasi <ankitpasi1@gmail.com>"]
+channels = ["conda-forge"]
+name = "EGM-Interpolation"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = "3.10.*"
+seaborn = ">=0.13.2,<0.14"
+jupyterlab = ">=4.4.0,<5"
+fire = ">=0.7.0,<0.8"
+protobuf = ">=5.29.3,<6"
+
+[pypi-dependencies]
+torch = ">=2.6.0, <3"
+torchvision = ">=0.21.0, <0.22"
+torchaudio = ">=2.6.0, <3"
+transformers = ">=4.51.3, <5"
+joblib = ">=1.4.2, <2"
+levenshtein = ">=0.27.1, <0.28"
+matplotlib = "*"
+matplotlib-inline = "*"
+nltk = ">=3.9.1, <4"
+numpy = "*"
+pandas = "*"
+pillow = "*"
+scikit-learn = ">=1.6.1, <2"
+scipy = "*"
+sentencepiece = ">=0.2.0, <0.3"
+tokenizers = ">=0.21.1, <0.22"
+tqdm = ">=4.67.1, <5"
+wandb = ">=0.19.9, <0.20"
+seaborn = "*"
+captum = ">=0.7.0, <0.8"
+pyts = ">=0.13.0, <0.14"
+wfdb = ">=4.3.0, <5"

@@ -175,3 +175,6 @@ files/
 flash-attention/
 wandb/
 .DS_Store/
+# pixi environments
+.pixi
+*.egg-info
