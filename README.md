@@ -1,32 +1,15 @@
-# Interpretation of Intracardiac Electrograms Through Textual Representations
+# Interpretation of Intracardiac Electrograms Through Textual Representations - Reproducing Paper for UIUC DLH 
 
-William Jongwon Han, Diana Gomez, Avi Alok, Chaojing Duan, Michael A. Rosenberg, Douglas Weber, Emerson Liu, Ding Zhao.
+DLH Final Project code for "[Interpretation of Intracardiac Electrograms Through Textual Representations](https://arxiv.org/abs/2402.01115)"
 
-Official code for "[Interpretation of Intracardiac Electrograms Through Textual Representations](https://arxiv.org/abs/2402.01115)" accepted by 2024 Conference on Health, Inference, and Learning (CHIL).
+Team - pasi2
+       sp108
 
-If you experience any bugs or have any questions, please submit an issue or contact at wjhan{at}andrew{dot}cmu{dot}edu.
 
-We thank the Mario Lemieux Center for Heart Rhythm Care at Allegheny General Hospital for supporting this work.
 
 ## Set Up Environment
 
-Note: We have only tested on Ubuntu 20.04.5 LTS. 
-
-1. `conda create -n envname python=3.8`
-
-2. `conda activate envname`
-
-3. `git clone https://github.com/willxxy/ekg-af.git`
-
-4. `cd ekg-af`
-
-5. `pip install torch==1.12.1+cu113 torchvision==0.13.1+cu113 torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cu113`
-
-Note: Please ensure that the pip you are using is from the conda environment
-
-6. Test if pytorch version is compatible with current, available gpus by executing `python gpu.py`. Currently, we have only tested on A5000 (24 GB) and A6000 (48 GB) NVIDIA GPUs.
-
-7. `pip install -r requirements.txt`
+ `pip install -r requirements.txt`
 
 ## Set Up Data
 
@@ -54,43 +37,65 @@ sh preprocess.sh
 
 6. This should create a data folder with several `.npy` for training, validation, and test.
 
+## Steps to Run Code
 
-## Start Training
+The following steps outline how to run the pipeline for the **BigBird** model using the PhysioNet dataset. These steps can be adapted for the **Longformer** model by replacing `--model big` with `--model long` in the commands. Default batch sizes are used below, but you can adjust them using `--batch <size>` (e.g., `--batch 8` for training, `--batch 16` for inference/pretraining).
 
-1. From the preprocess folder `cd ../` back to the main directory.
+### 1. Preprocessing (Already covered in Set Up Data)
 
-2. You can now directly use `train.sh` files to start training.
+Ensure you have run the preprocessing steps described in the "Set Up Data" section. The main command is:
 
-## Inference
-
-1. Please execute `sh inference.sh` after training. Make sure to specify the checkpoint path.
-
-## Visualizations
-
-All visualizations will be saved under their respective checkpoint folder.
-Please `cd visualize` before visualizing. 
-Under the `visualize` folder, please view the following scripts:
-
-
-1. `stitch.sh` - Visualizes the reconstructed and forecasted signals. 
-
-2. `viz_tokens.sh` - Visualizes the tokenized representation of the signal. 
-
-3. `viz_attentions.sh` - Visualizes the attention map of the model. 
-
-4. `viz_int_grad.sh` - Visualizes the attribution scores of the model.
-
-## Citation
-
-If you found this repository or work helpful to your own, please cite the following bibtex.
-
+```bash
+cd preprocess
+python preprocess_intra.py
+cd ..
 ```
-@misc{han2024interpretation,
-      title={Interpretation of Intracardiac Electrograms Through Textual Representations}, 
-      author={William Jongwon Han and Diana Gomez and Avi Alok and Chaojing Duan and Michael A. Rosenberg and Douglas Weber and Emerson Liu and Ding Zhao},
-      year={2024},
-      eprint={2402.01115},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL}
-}
+
+### 2. Pretrain Embeddings (Optional)
+
+This step pretrains token embeddings before the main training task.
+
+```bash
+python pretrain_embeddings.py --model big --epochs 30 --output_dir ./pretrained_embeddings
 ```
+The resulting embeddings will be saved in `./pretrained_embeddings/big_embedding_weights.pt`.
+
+### 3. Training
+
+You can train the model either from scratch or using the pretrained embeddings.
+
+**a) Train from Scratch:**
+
+```bash
+python train.py --model big --epochs 20 --no-use_ce
+```
+
+**b) Train with Pretrained Embeddings:**
+
+Make sure the embedding file from step 2 exists.
+
+```bash
+python train.py --model big --epochs 20 --no-use_ce --pretrained_embeddings ./pretrained_embeddings/big_embedding_weights.pt
+```
+
+Training checkpoints will be saved in a timestamped directory under `runs/checkpoint/`, e.g., `runs/checkpoint/saved_best_date_time_big_...`. Note the name of your specific checkpoint directory (`<CHECKPOINT_NAME>`) for the next steps.
+
+### 4. Inference (Evaluation)
+
+Run inference using a trained checkpoint. Replace `<CHECKPOINT_NAME>` with the actual directory name obtained from the training step.
+
+```bash
+python inference.py --checkpoint <CHECKPOINT_NAME> --model big --mask 0.75
+```
+
+### 5. Visualization (Integrated Gradients)
+
+Generate integrated gradient visualizations for a trained checkpoint. Replace `<CHECKPOINT_NAME>` with the actual directory name obtained from the training step.
+
+```bash
+python visualize/int_grad.py --checkpoint <CHECKPOINT_NAME> --model big --CF --pre --n_steps 20
+```
+
+The visualizations (PNG files) and raw attribution scores (NPY files) will be saved within the corresponding checkpoint directory (`runs/checkpoint/<CHECKPOINT_NAME>/`).
+
+Note: The original `run_pipeline.sh` script includes additional steps for downloading artifacts and logs, especially when running on cloud platforms. The commands above represent the core execution steps for the BigBird model. Repeat steps 2-5 with `--model long` for the Longformer variant.
